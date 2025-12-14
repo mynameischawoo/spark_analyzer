@@ -210,6 +210,12 @@ def analyze_single_application(files: List[str]) -> Dict[str, Any]:
     # Post-processing calculations
     duration_sec = (app_end_time - app_start_time) / 1000.0 if (app_end_time > 0 and app_start_time > 0) else 0
     
+    start_date_str = ""
+    if app_start_time > 0:
+        import datetime
+        dt = datetime.datetime.fromtimestamp(app_start_time / 1000.0)
+        start_date_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+    
     # Job Aggregations
     for sid, s_read in stage_shuffle_read.items():
         jid = stage_to_job.get(sid)
@@ -288,6 +294,7 @@ def analyze_single_application(files: List[str]) -> Dict[str, Any]:
         
     # Construct Result Dict
     metrics = {
+        "Start Date": start_date_str,
         "Application ID": app_id,
         "Application Name": app_name,
         "Duration (Sec)": round(duration_sec, 2),
@@ -478,7 +485,7 @@ def main():
     
     # Reorder columns to match definitions (optional but good)
     desired_order = [
-        "Application ID", "Application Name", "Duration (Sec)", "Total Input", "Total Output",
+        "Start Date", "Application ID", "Application Name", "Duration (Sec)", "Total Input", "Total Output",
         "Driver Cores", "Driver Memory", "Executor Cores", "Executor Memory", "Executor Overhead Memory",
         "Requested Executors", "Max Active Executors", "Total Cores Capacity", "Total Memory Capacity",
         "Avg Idle Cores (%)", "Peak Memory Usage (%)", "Peak Heap Usage",
