@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spark Analyzer</title>
+    <link rel="stylesheet" href="/static/css/style.css?v=6">
+</head>
+
+<body>
+    <header>
+        <div class="logo" id="logo-btn" style="cursor: pointer;">
+            <span class="icon">⚡</span> Spark Analyzer
+        </div>
+        <div class="header-actions">
+            <button id="btn-view-recent" class="secondary-btn">최근 분석 결과 보기</button>
+        </div>
+    </header>
+
+    <main>
+        <section id="log-selection-view">
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>Application Logs</h2>
+                    <div class="header-actions" style="display:flex; gap:10px;">
+                        <input type="file" id="log-upload-input" multiple style="display:none;">
+                        <button id="btn-upload-log" class="secondary-btn">로그 업로드</button>
+                        <button id="btn-delete-log" class="secondary-btn"
+                            style="color: #d9534f; border-color: #d9534f;">선택 삭제</button>
+                        <button id="btn-start-analysis" class="primary-btn">요약 분석 시작</button>
+                        <button id="btn-start-detail-analysis" class="primary-btn" style="background-color: #28a745;">상세
+                            분석 시작</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table id="log-table">
+                        <thead>
+                            <tr>
+                                <th width="50"><input type="checkbox" id="select-all"></th>
+                                <th class="sortable" data-sort="filename">애플리케이션 파일 <span class="sort-icon"></span></th>
+                                <th class="sortable" data-sort="appName">애플리케이션 이름 <span class="sort-icon"></span></th>
+                                <th class="sortable" data-sort="date">파일 날짜 <span class="sort-icon"></span></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Logs will be injected here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <section id="analysis-result-view" class="hidden">
+            <!-- ... existing summary view ... -->
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>분석 결과</h2>
+                    <div class="header-controls">
+                        <div class="unit-toggles">
+                            <span>단위 변환: </span>
+                            <button class="unit-btn" data-unit="B">B</button>
+                            <button class="unit-btn" data-unit="KB">KB</button>
+                            <button class="unit-btn" data-unit="MB">MB</button>
+                            <button class="unit-btn active" data-unit="GB">GB</button>
+                            <button class="unit-btn" data-unit="TB">TB</button>
+                        </div>
+                        <button id="btn-download-csv" class="secondary-btn" style="margin-right: 5px;">CSV 다운로드</button>
+                        <button id="btn-back" class="secondary-btn">목록으로 돌아가기</button>
+                    </div>
+                </div>
+                <div class="table-container horizontal-scroll">
+                    <table id="result-table">
+                        <thead></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <section id="detail-result-view" class="hidden">
+            <div class="panel">
+                <div class="panel-header">
+                    <div>
+                        <h2>상세 분석 결과 (Stage Details)</h2>
+                        <div id="app-detail-info" style="font-size: 0.9em; color: #666; margin-top: 5px;"></div>
+                    </div>
+                    <div class="header-controls">
+                        <button id="btn-back-from-detail" class="secondary-btn">목록으로 돌아가기</button>
+                    </div>
+                </div>
+                <div class="table-container horizontal-scroll">
+                    <table id="detail-table">
+                        <thead>
+                            <tr>
+                                <th>Stage ID</th>
+                                <th>Stage Name</th>
+                                <th>Stage Desc</th>
+                                <th>Status</th>
+                                <th>Duration (s)</th>
+                                <th>Tasks (Parts)</th>
+                                <th>Avg Input/Task</th>
+                                <th>Input</th>
+                                <th>Output</th>
+                                <th>Shuffle Read</th>
+                                <th>Shuffle Write</th>
+                                <th>Spill Memory</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Stage Details Here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <div id="loading-overlay" class="hidden">
+        <div class="spinner"></div>
+        <p>분석 중입니다...</p>
+    </div>
+
+    <script src="/static/js/app.js?v=21"></script>
+</body>
+
+</html>

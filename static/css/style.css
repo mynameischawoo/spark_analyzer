@@ -1,0 +1,331 @@
+:root {
+    --primary-color: #0066cc;
+    --primary-hover: #0052a3;
+    --bg-color: #f4f7f6;
+    --panel-bg: #ffffff;
+    --text-color: #333;
+    --border-color: #ddd;
+    --header-height: 60px;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+header {
+    height: var(--header-height);
+    background-color: var(--panel-bg);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.logo {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: var(--primary-color);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+main {
+    flex: 1;
+    padding: 20px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+main>section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+    /* Critical for nested flex scrolling */
+}
+
+.panel {
+    background: var(--panel-bg);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+/* Tooltip Styles */
+.tooltip-trigger {
+    position: relative;
+    cursor: help;
+    border-bottom: 1px dotted #aaa;
+}
+
+.tooltip-content {
+    visibility: hidden;
+    width: max-content;
+    /* Fit to content */
+    max-width: 400px;
+    /* But cap it */
+    min-width: 200px;
+    background-color: #333;
+    color: #fff;
+    text-align: center;
+    border-radius: 6px;
+    padding: 8px 12px;
+    /* bit more padding */
+    position: absolute;
+    z-index: 1000;
+    /* Higher z-index just in case */
+    top: 130%;
+    /* bit more spacing */
+    bottom: auto;
+    /* clear previous bottom */
+    left: 50%;
+    transform: translateX(-50%);
+    /* Dynamic centering */
+    /* margin-left removed */
+    opacity: 0;
+    transition: opacity 0.3s;
+    font-size: 0.9em;
+    font-weight: normal;
+
+    white-space: normal;
+    /* Check wrapping */
+    word-break: keep-all;
+    /* Korean friendly */
+    line-height: 1.4;
+
+    pointer-events: none;
+    /* Prevent blocking drag */
+    box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.tooltip-content::after {
+    content: "";
+    position: absolute;
+    bottom: 100%;
+    /* Arrow at top */
+    top: auto;
+    left: 50%;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: transparent transparent #333 transparent;
+    /* Point UP */
+}
+
+.tooltip-trigger:hover .tooltip-content {
+    visibility: visible;
+    opacity: 1;
+}
+
+/* Sorting and Dragging Styles */
+.sortable {
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+}
+
+.sortable:hover {
+    background-color: #f1f1f1;
+}
+
+.sortable.dragging {
+    opacity: 0.5;
+    background-color: #e0e0e0;
+}
+
+.sortable.drag-over {
+    border-left: 2px solid var(--primary-color);
+}
+
+.sort-icon::after {
+    content: '⇅';
+    font-size: 0.8em;
+    margin-left: 5px;
+    color: #999;
+    visibility: hidden;
+    /* Hide by default until hovered or active if preferred, using visible for now to show capability */
+    visibility: visible;
+}
+
+.sortable.asc .sort-icon::after {
+    content: '↑';
+    color: var(--primary-color);
+}
+
+.sortable.desc .sort-icon::after {
+    content: '↓';
+    color: var(--primary-color);
+}
+
+.panel-header {
+    padding: 15px 20px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.header-controls {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.unit-toggles {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.unit-btn {
+    padding: 4px 8px;
+    background: #f0f0f0;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 0.8rem;
+}
+
+.unit-btn:hover {
+    background: #e0e0e0;
+}
+
+.unit-btn.active {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+
+.panel-header h2 {
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.table-container {
+    flex: 1;
+    overflow: auto;
+    /* Handles both vertical and horizontal scroll */
+    padding: 0;
+}
+
+.table-container table {
+    min-width: 100%;
+    /* Ensures table fills width but can grow for horizontal scroll */
+    white-space: nowrap;
+    /* Prevent wrapping for better column readability */
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+th,
+td {
+    padding: 12px 20px;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+}
+
+th {
+    background-color: #fafafa;
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+tbody tr:hover {
+    background-color: #f0f7ff;
+}
+
+/* Buttons */
+button {
+    cursor: pointer;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    transition: background 0.2s;
+}
+
+.primary-btn {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.primary-btn:hover {
+    background-color: var(--primary-hover);
+}
+
+.secondary-btn {
+    background-color: #fff;
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+}
+
+.secondary-btn:hover {
+    background-color: #f5f5f5;
+}
+
+/* Utilities */
+.hidden {
+    display: none !important;
+}
+
+/* Loading Overlay */
+#loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.8);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 10px;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
