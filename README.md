@@ -46,11 +46,31 @@ spark_analyzer/
 본 프로젝트는 편의를 위해 `Makefile`을 제공합니다. 터미널 명령어를 통해 손쉽게 설치하고 실행할 수 있습니다.
 
 ### 1. 사전 요구 사항 (Prerequisites)
-*   **Python 3.8** 이상
+*   **Python 3.8** 이상 (3.11 권장)
 *   Chrome, Safari, Edge 등 최신 웹 브라우저
 
+#### [참고] pyenv를 이용한 Python 3.11 가상환경 설정 가이드
+Python 버전 관리 도구인 `pyenv`를 사용하여 3.11 환경을 독립적으로 구성하는 것을 권장합니다.
+
+1.  **Python 3.11.7 설치**:
+    ```bash
+    pyenv install 3.11.7
+    ```
+
+2.  **가상환경 생성**:
+    ```bash
+    pyenv virtualenv 3.11.7 spark_analyzer_env
+    ```
+
+3.  **가상환경 활성화 (Activate)**:
+    프로젝트 폴더에서 다음 명령어를 실행하면 자동으로 활성화됩니다.
+    ```bash
+    pyenv local spark_analyzer_env
+    ```
+    (또는 `pyenv activate spark_analyzer_env`)
+
 ### 2. 설치 (Installation)
-프로젝트 라이브러리를 설치합니다. (가상 환경 권장)
+프로젝트 라이브러리를 설치합니다. (가상 환경 활성화 상태에서 실행 권장)
 
 ```bash
 make install
