@@ -344,6 +344,11 @@ def analyze_stage_details(files: List[str]) -> List[Dict]:
     executor_time_series = [] # List of {"time": timestamp, "count": N}
     current_executors = 0
     
+    # SQL & Accumulators
+    sql_executions = {}
+    accumulators = {}
+    stages_to_execution = {}
+    
     for file_path in files:
         with open(file_path, 'r', encoding='utf-8') as f:
             for line in f:
@@ -429,20 +434,139 @@ def analyze_stage_details(files: List[str]) -> List[Dict]:
                             task_metrics = event.get("Task Metrics", {})
                             if task_metrics:
                                 stages[sid]["Input"] = stages[sid].get("Input", 0) + task_metrics.get("Input Metrics", {}).get("Bytes Read", 0)
+                                stages[sid]["Input Records"] = stages[sid].get("Input Records", 0) + task_metrics.get("Input Metrics", {}).get("Records Read", 0)
                                 stages[sid]["Output"] = stages[sid].get("Output", 0) + task_metrics.get("Output Metrics", {}).get("Bytes Written", 0)
+                                stages[sid]["Output Records"] = stages[sid].get("Output Records", 0) + task_metrics.get("Output Metrics", {}).get("Records Written", 0)
                                 sr = task_metrics.get("Shuffle Read Metrics", {})
                                 stages[sid]["Shuffle Read"] = stages[sid].get("Shuffle Read", 0) + sr.get("Remote Bytes Read", 0) + sr.get("Local Bytes Read", 0)
                                 sw = task_metrics.get("Shuffle Write Metrics", {})
                                 stages[sid]["Shuffle Write"] = stages[sid].get("Shuffle Write", 0) + sw.get("Shuffle Bytes Written", 0)
                                 stages[sid]["Spill Memory"] = stages[sid].get("Spill Memory", 0) + task_metrics.get("Memory Bytes Spilled", 0)
                                 stages[sid]["Spill Disk"] = stages[sid].get("Spill Disk", 0) + task_metrics.get("Disk Bytes Spilled", 0)
+                            
+                            # Accumulator Updates from Task
+                            task_accum = task_metrics.get("Accumulators", [])
+                            if not task_accum:
+                                # Sometimes it's directly under TaskInfo or Accumulables
+                                # But standard JSON has "Task Metrics" -> "Accumulators" or top level "Task Info" -> "Accumulables"
+                                # Let's check top level accumulables for accuracy
+                                pass
+                                
+                            # 'Accumulables' is often at top level of SparkListenerTaskEnd in some versions, or inside TaskInfo
+                            accumulables = event.get("Task Info", {}).get("Accumulables", [])
+                            if not accumulables: 
+                                # Fallback to standard location if any
+                                accumulables = task_metrics.get("Accumulators", []) # Older spark?
+                                
+                            for acc in accumulables:
+                                try:
+                                    aid = int(acc.get("ID"))
+                                    # We need to sum up values. 
+                                    # NOTE: Some accumulators are "internal.metrics..." and might need summing.
+                                    # Value can be string for some types, but mostly numbers for metrics.
+                                    val_str = acc.get("Update", "0")
+                                    try:
+                                        val = float(val_str) if '.' in val_str else int(val_str)
+                                    except:
+                                        val = 0
+                                        
+                                    if aid in accumulators:
+                                        accumulators[aid] = accumulators[aid] + val
+                                    else:
+                                        accumulators[aid] = val
+                                except:
+                                    pass
+
+                                    pass
+
+                    elif event_type.endswith("SparkListenerSQLExecutionStart"):
+                        exec_id = event.get("executionId")
+                        desc = event.get("description", "")
+                        plan_info = event.get("sparkPlanInfo", {})
+                        time = event.get("time", 0)
+                        
+                        nodes = {} # nodeId -> {name, metrics: {name: accumId}}
+                        
+                        def parse_plan_info(node):
+                            # ... (same logic)
+                            
+                            node_data = {
+                                "nodeName": node.get("nodeName", "Unknown"),
+                                "simpleString": node.get("simpleString", ""),
+                                "metrics": [] # List of {name, accumulatorId}
+                            }
+                            
+                            for m in node.get("metrics", []):
+                                node_data["metrics"].append({
+                                    "name": m.get("name"),
+                                    "accumulatorId": m.get("accumulatorId")
+                                })
+                            
+                            children = []
+                            for child in node.get("children", []):
+                                children.append(parse_plan_info(child))
+                            
+                            node_data["children"] = children
+                            return node_data
+
+                        if exec_id is not None:
+                            try:
+                                root_node = parse_plan_info(plan_info)
+                                sql_executions[exec_id] = {
+                                    "executionId": exec_id,
+                                    "description": desc,
+                                    "startTime": time,
+                                    "plan": root_node, # Tree structure
+                                    "jobs": [] # List of Job IDs
+                                }
+                            except Exception as e:
+                                print(f"Error parsing plan: {e}")
+
+                    elif event_type.endswith("SparkListenerJobStart"):
+                        job_id = event.get("Job ID")
+                        props = event.get("Properties", {})
+                        exec_id_str = props.get("spark.sql.execution.id")
+                        if exec_id_str and job_id is not None:
+                            try:
+                                exec_id = int(exec_id_str)
+                                if exec_id in sql_executions:
+                                    sql_executions[exec_id]["jobs"].append(job_id)
+                                    
+                                # Map stages to this execution
+                                stage_ids = event.get("Stage IDs", [])
+                                for sid in stage_ids:
+                                    stages_to_execution[sid] = exec_id
+                            except:
+                                pass
+
+                    elif event_type.endswith("SparkListenerDriverAccumUpdates"):
+                        # Driver side updates
+                        exec_id = event.get("executionId")
+                        updates = event.get("accumUpdates", [])
+                        for update in updates:
+                            # [accumulatorId, value]
+                            if len(update) >= 2:
+                                aid = int(update[0])
+                                val = update[1] # Can be int
+                                # Driver updates REPLACING the value often wipes out Task updates if driver sends 0.
+                                # Use max to preserve aggregated counters.
+                                curr = accumulators.get(aid, 0)
+                                if isinstance(val, (int, float)) and isinstance(curr, (int, float)):
+                                     accumulators[aid] = max(curr, val)
+                                else:
+                                     accumulators[aid] = val
 
                 except Exception:
                     continue
                     
     # Finalize
     result_list = []
+    print(f"Found {len(sql_executions)} SQL Executions")
     for sid, data in stages.items():
+        # Link to Execution ID
+        if sid in stages_to_execution:
+            data["Execution ID"] = stages_to_execution[sid]
+        
         # Duration
         sub = data.get("Submission Time", 0)
         comp = data.get("Completion Time", 0)
@@ -468,7 +592,10 @@ def analyze_stage_details(files: List[str]) -> List[Dict]:
     return {
         "appInfo": app_info,
         "stages": sorted_stages,
-        "executorTimeSeries": executor_time_series
+        "executorTimeSeries": executor_time_series,
+        "sqlExecutions": sql_executions,
+        "accumulators": accumulators,
+        "stagesToExecution": stages_to_execution
     }
 
 def main():

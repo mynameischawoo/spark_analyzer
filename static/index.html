@@ -5,7 +5,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Spark Analyzer</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=6">
+    <link rel="stylesheet" href="/static/css/style.css?v=31">
+    <script src="/static/js/app.js?v=31"></script>
+    </body>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         .chart-container {
@@ -99,32 +101,40 @@
                     </div>
                 </div>
 
-                <div class="chart-container">
-                    <canvas id="executorChart"></canvas>
-                </div>
+                <div class="scroll-y-container">
+                    <div class="chart-container">
+                        <canvas id="executorChart"></canvas>
+                    </div>
 
-                <div class="table-container horizontal-scroll">
-                    <table id="detail-table">
-                        <thead>
-                            <tr>
-                                <th>Stage ID</th>
-                                <th>Stage Name</th>
-                                <th>Stage Desc</th>
-                                <th>Status</th>
-                                <th>Duration (s)</th>
-                                <th>Tasks (Parts)</th>
-                                <th>Avg Input/Task</th>
-                                <th>Input</th>
-                                <th>Output</th>
-                                <th>Shuffle Read</th>
-                                <th>Shuffle Write</th>
-                                <th>Spill Memory</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <!-- Stage Details Here -->
-                        </tbody>
-                    </table>
+                    <!-- SQL Plan Visualization -->
+                    <div id="sql-plan-container" class="sql-plan-container hidden">
+                        <h3>SQL Query Plan</h3>
+                        <div id="sql-plan-content"></div>
+                    </div>
+
+                    <div class="table-container horizontal-scroll">
+                        <table id="detail-table">
+                            <thead>
+                                <tr>
+                                    <th>Stage ID</th>
+                                    <th>Stage Name</th>
+                                    <th>Stage Desc</th>
+                                    <th>Status</th>
+                                    <th>Duration (s)</th>
+                                    <th>Tasks (Parts)</th>
+                                    <th>Avg Input/Task</th>
+                                    <th>Input</th>
+                                    <th>Output</th>
+                                    <th>Shuffle Read</th>
+                                    <th>Shuffle Write</th>
+                                    <th>Spill Memory</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Stage Details Here -->
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </section>
@@ -135,7 +145,8 @@
         <p>분석 중입니다...</p>
     </div>
 
-    <script src="/static/js/app.js?v=23"></script>
+    <link rel="stylesheet" href="/static/css/style.css?v=33">
+    <script src="/static/js/app.js?v=41"></script>
 </body>
 
 </html>

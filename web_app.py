@@ -168,8 +168,13 @@ async def analyze_detail(request: AnalyzeRequest):
         raise HTTPException(status_code=400, detail="No valid files selected")
         
     try:
-        # Assuming all files belong to one app or we just analyze what is given
-        details = analyze_stage_details(input_files)
+        # Dynamic import and reload to pick up latest parser changes without restart
+        import importlib
+        import spark_log_parser
+        importlib.reload(spark_log_parser)
+        
+        # Assuming all files belong to one app
+        details = spark_log_parser.analyze_stage_details(input_files)
         return details
     except Exception as e:
         import traceback
