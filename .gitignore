@@ -209,3 +209,6 @@ __marimo__/
 # spark analyzer result
 latest_analysis_result.csv
 test_output.csv
+
+# macOS
+.DS_Store

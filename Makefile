@@ -20,6 +20,7 @@ install:
 
 run:
 	@echo "Starting server in foreground on port $(PORT)..."
+	open http://127.0.0.1:$(PORT)
 	$(PYTHON) $(APP_FILE)
 
 start:
