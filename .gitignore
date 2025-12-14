@@ -206,5 +206,6 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# sprak analyzer result
+# spark analyzer result
 latest_analysis_result.csv
+test_output.csv
