@@ -61,14 +61,100 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    let executorChart = null;
+
+    function renderExecutorChart(timeSeries) {
+        const ctx = document.getElementById('executorChart').getContext('2d');
+
+        if (executorChart) {
+            executorChart.destroy();
+        }
+
+        if (!timeSeries || timeSeries.length === 0) {
+            return;
+        }
+
+        // Sort by time just in case
+        timeSeries.sort((a, b) => a.time - b.time);
+
+        const startTime = timeSeries[0].time;
+
+        const dataPoints = timeSeries.map(pt => ({
+            x: (pt.time - startTime) / 1000.0, // Seconds relative to start
+            y: pt.count
+        }));
+
+        // Add a final point for duration if needed, or just Step line
+        // Stepped line is better for count changes
+
+        executorChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                datasets: [{
+                    label: 'Active Executors',
+                    data: dataPoints,
+                    borderColor: 'rgb(75, 192, 192)',
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    stepped: true, // Step chart logic
+                    fill: true,
+                    tension: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        type: 'linear',
+                        title: {
+                            display: true,
+                            text: 'Time (Seconds)'
+                        },
+                        ticks: {
+                            callback: function (value) { return value + 's'; }
+                        }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Executor Count'
+                        },
+                        ticks: {
+                            stepSize: 1
+                        }
+                    }
+                },
+                interaction: {
+                    intersect: false,
+                    mode: 'index',
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function (context) {
+                                return `Executors: ${context.parsed.y}`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     function renderDetailTable(data) {
+        // Render Chart
+        if (data.executorTimeSeries) {
+            renderExecutorChart(data.executorTimeSeries);
+        }
+
         // data = { appInfo: {...}, stages: [...] }
         const stages = data.stages || [];
         const appInfo = data.appInfo || {};
 
         // Render Header Info
         const infoDiv = document.getElementById('app-detail-info');
-        infoDiv.innerHTML = `App Name: <strong>${appInfo.name}</strong> | App ID: <strong>${appInfo.id}</strong>`;
+        infoDiv.innerHTML = `<strong>App Name:</strong> ${appInfo.name} | <strong>App ID:</strong> ${appInfo.id}`;
 
         const tbody = document.querySelector('#detail-table tbody');
         tbody.innerHTML = '';

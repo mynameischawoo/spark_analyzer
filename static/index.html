@@ -6,6 +6,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Spark Analyzer</title>
     <link rel="stylesheet" href="/static/css/style.css?v=6">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .chart-container {
+            position: relative;
+            height: 300px;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+    </style>
 </head>
 
 <body>
@@ -83,12 +92,17 @@
                 <div class="panel-header">
                     <div>
                         <h2>상세 분석 결과 (Stage Details)</h2>
-                        <div id="app-detail-info" style="font-size: 0.9em; color: #666; margin-top: 5px;"></div>
+                        <div id="app-detail-info" class="p-4 bg-gray-100 rounded mb-4 text-sm font-mono"></div>
                     </div>
                     <div class="header-controls">
                         <button id="btn-back-from-detail" class="secondary-btn">목록으로 돌아가기</button>
                     </div>
                 </div>
+
+                <div class="chart-container">
+                    <canvas id="executorChart"></canvas>
+                </div>
+
                 <div class="table-container horizontal-scroll">
                     <table id="detail-table">
                         <thead>
@@ -121,7 +135,7 @@
         <p>분석 중입니다...</p>
     </div>
 
-    <script src="/static/js/app.js?v=22"></script>
+    <script src="/static/js/app.js?v=23"></script>
 </body>
 
 </html>

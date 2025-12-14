@@ -340,16 +340,35 @@ def analyze_stage_details(files: List[str]) -> List[Dict]:
     stages = {} # stage_id -> dict
     app_info = {"id": "Unknown", "name": "Unknown"}
     
+    # Executor Time Series
+    executor_time_series = [] # List of {"time": timestamp, "count": N}
+    current_executors = 0
+    
     for file_path in files:
         with open(file_path, 'r', encoding='utf-8') as f:
             for line in f:
                 try:
                     event = json.loads(line)
                     event_type = event.get("Event")
+                    ts = event.get("Timestamp", 0) # Most events have Timestamp? No, not all.
+                    # SparkListenerExecutorAdded has "Timestamp"
                     
                     if event_type == "SparkListenerApplicationStart":
                         app_info["id"] = event.get("App ID", app_info["id"])
                         app_info["name"] = event.get("App Name", app_info["name"])
+                        # Initialize series at start
+                        if "Timestamp" in event:
+                             executor_time_series.append({"time": event["Timestamp"], "count": 0})
+
+                    elif event_type == "SparkListenerExecutorAdded":
+                        current_executors += 1
+                        if "Timestamp" in event:
+                            executor_time_series.append({"time": event["Timestamp"], "count": current_executors})
+                            
+                    elif event_type == "SparkListenerExecutorRemoved":
+                        current_executors = max(0, current_executors - 1)
+                        if "Timestamp" in event:
+                            executor_time_series.append({"time": event["Timestamp"], "count": current_executors})
 
                     elif event_type == "SparkListenerStageSubmitted":
                         info = event.get("Stage Info", {})
@@ -359,8 +378,6 @@ def analyze_stage_details(files: List[str]) -> List[Dict]:
                             desc = info.get("Stage Name", "")
                             props = event.get("Properties", {})
                             if not props:
-                                # Sometimes properties are inside Stage Info?? No usually top level in JSON or separate event
-                                # But SparkListenerStageSubmitted JSON has "Properties": {...} at top level
                                 pass
                             
                             # Standard Spark properties for description
@@ -450,7 +467,8 @@ def analyze_stage_details(files: List[str]) -> List[Dict]:
     
     return {
         "appInfo": app_info,
-        "stages": sorted_stages
+        "stages": sorted_stages,
+        "executorTimeSeries": executor_time_series
     }
 
 def main():

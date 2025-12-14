@@ -112,6 +112,10 @@ def get_app_name_from_file(filepath):
 class NameRequest(BaseModel):
     files: List[str]
 
+@app.get("/.well-known/appspecific/com.chrome.devtools.json")
+async def chrome_devtools_silencer():
+    return {}
+
 @app.post("/api/extract-names")
 async def extract_names(request: NameRequest):
     """Returns app names for requested files."""
