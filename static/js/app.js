@@ -228,7 +228,8 @@ document.addEventListener('DOMContentLoaded', () => {
             // 2. Identify missing names
             const missingFiles = [];
             logFiles.forEach(f => {
-                if (nameCache[f.filename]) {
+                // If cached and valid (not Unknown), use it
+                if (nameCache[f.filename] && nameCache[f.filename] !== "Unknown") {
                     f.appName = nameCache[f.filename];
                 } else {
                     missingFiles.push(f.filename);

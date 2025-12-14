@@ -96,7 +96,7 @@ def get_app_name_from_file(filepath):
     """Reads the beginning of the file to find SparkListenerApplicationStart."""
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
-            for _ in range(100): # Check first 100 lines
+            for _ in range(5000): # Check first 5000 lines to find App Name
                 line = f.readline()
                 if not line: break
                 try:
