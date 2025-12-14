@@ -209,6 +209,7 @@ __marimo__/
 # spark analyzer result
 latest_analysis_result.csv
 test_output.csv
+event_logs/
 
 # macOS
 .DS_Store
