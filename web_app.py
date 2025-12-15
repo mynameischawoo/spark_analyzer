@@ -24,6 +24,13 @@ os.makedirs(STATIC_DIR, exist_ok=True)
 class AnalyzeRequest(BaseModel):
     files: List[str]
 
+@app.get("/api/config")
+async def get_config():
+    """Returns application configuration."""
+    return {
+        "shs_url": os.environ.get("SHS_URL", "")
+    }
+
 @app.get("/")
 async def read_index():
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))

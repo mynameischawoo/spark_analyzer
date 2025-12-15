@@ -909,6 +909,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentResults = []; // Store raw data
     let currentUnit = 'GB';   // Default to GB
     let metricDefinitions = {}; // Store tooltips
+    let shsUrl = "";
 
     // Sort State
     let sortState = {
@@ -928,8 +929,25 @@ document.addEventListener('DOMContentLoaded', () => {
     ];
 
     // Init
+    fetchConfig();
     fetchDefinitions();
     fetchLogs();
+
+    async function fetchConfig() {
+        try {
+            const res = await fetch('/api/config');
+            if (res.ok) {
+                const data = await res.json();
+                shsUrl = data.shs_url;
+                // Re-render if we have data (fixes race condition)
+                if (currentResults.length > 0) {
+                    renderResults(currentResults);
+                }
+            }
+        } catch (e) {
+            console.error("Failed to load config", e);
+        }
+    }
 
     async function fetchDefinitions() {
         try {
@@ -1340,7 +1358,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     val = val.toLocaleString();
                 }
 
-                td.textContent = val;
+                if (key === "Application ID" && shsUrl && val) {
+                    const link = document.createElement('a');
+                    const baseUrl = shsUrl.endsWith('/') ? shsUrl.slice(0, -1) : shsUrl;
+                    link.href = `${baseUrl}/history/${val}/`;
+                    link.target = "_blank";
+                    link.textContent = val;
+                    link.style.color = "#007bff";
+                    link.style.textDecoration = "underline";
+                    td.appendChild(link);
+                } else {
+                    td.textContent = val;
+                }
                 tr.appendChild(td);
             });
             resultTableBody.appendChild(tr);
