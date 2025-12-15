@@ -169,6 +169,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 // If this node has metrics, add them
                 if (n.metrics) {
                     n.metrics.forEach(m => {
+                        if (!m || !m.name) return; // Safety check
+
                         // Filter? Or just take all?
                         // We strictly want "written" stuff or generic rows
                         const mName = m.name.toLowerCase();
@@ -264,6 +266,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (scan.metrics) {
                 scan.metrics.forEach(m => {
+                    if (!m || !m.name) return; // Safety check
                     if (!uniqueScans[ident]._mergedAccums[m.name]) uniqueScans[ident]._mergedAccums[m.name] = [];
                     uniqueScans[ident]._mergedAccums[m.name].push(m.accumulatorId);
                 });
@@ -537,8 +540,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Populate collectedMetrics
         metricsSource.forEach(m => {
+            if (!m) return;
             const val = getVal(m);
-            const mName = m.name.toLowerCase();
+            const mName = m.name ? m.name.toLowerCase() : "";
+            if (!mName) return;
 
             // Generic fallback
             if (mName.includes("files")) collectedMetrics.files = val;
@@ -603,8 +608,10 @@ document.addEventListener('DOMContentLoaded', () => {
             };
 
             sources.forEach(m => {
+                if (!m) return; // Safety check
                 const val = getVal(m);
                 const name = m.name;
+                if (!name) return; // Safety check
 
                 if (isBytes(name)) bytesWritten = val;
                 if (isRows(name)) rows = val;
@@ -622,6 +629,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                         if (n.metrics) {
                             n.metrics.forEach(m => {
+                                if (!m || !m.name) return; // Safety check
                                 const mName = m.name;
                                 const mVal = Number(accumulators[m.accumulatorId] || 0);
 
@@ -658,7 +666,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // 1. Metrics First
             const outputMetrics = processOutputNodeMetrics(node, accumulators, stages, allExecutions);
-            outputMetrics.forEach(m => details.push({ label: m.name, value: m.value }));
+            outputMetrics.forEach(m => {
+                if (m && m.name) details.push({ label: m.name, value: m.value });
+            });
 
             // 2. Metadata Next
             if (parsedMeta.partitionBy) {
@@ -822,11 +832,13 @@ document.addEventListener('DOMContentLoaded', () => {
             sqlContainer.classList.add('hidden');
         }
 
-        const { stages, appInfo } = data;
+        const { stages } = data;
+        const appName = data.appInfo ? data.appInfo.name : (data.appName || "Unknown");
+        const appId = data.appInfo ? data.appInfo.id : (data.appId || "Unknown");
 
         // Render Header Info
         const infoDiv = document.getElementById('app-detail-info');
-        infoDiv.innerHTML = `<strong>App Name:</strong> ${appInfo.name} | <strong>App ID:</strong> ${appInfo.id}`;
+        infoDiv.innerHTML = `<strong>App Name:</strong> ${appName} | <strong>App ID:</strong> ${appId}`;
 
         const tbody = document.querySelector('#detail-table tbody');
         tbody.innerHTML = '';
