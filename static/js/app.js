@@ -431,14 +431,15 @@ document.addEventListener('DOMContentLoaded', () => {
         return result;
     }
 
-    // Helper to sum stage metrics
-    function getStageMetrics(stages, executionId) {
-        let files = 0; // Stage metrics don't usually track files written directly unless added
+    // Helper to sum stage metrics (Global Fallback)
+    function getStageMetrics(stages) {
         let bytes = 0;
         let rows = 0;
-        if (stages && executionId) {
+        if (stages) {
             stages.forEach(s => {
-                if (s["Execution ID"] == executionId) {
+                // Sum ALL output-bearing stages regardless of ID
+                // This is robust for AQE split scenarios where ID filtering fails
+                if ((s["Output"] || 0) > 0 || (s["Output Records"] || 0) > 0) {
                     bytes += (s["Output"] || 0);
                     rows += (s["Output Records"] || 0);
                 }
@@ -447,7 +448,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return { bytes, rows };
     }
 
-    function renderRecursivePlan(node, accumulators, container, stages, executionId) {
+    function renderRecursivePlan(node, accumulators, container, stages, allExecutions) {
         if (!node) return '';
 
         if (node.nodeName === "Flow") {
@@ -456,7 +457,7 @@ document.addEventListener('DOMContentLoaded', () => {
                      <div class="sql-children" style="margin-top:0; padding-top:10px; border-top: 1px dashed #ddd;">`;
             if (node.children) {
                 node.children.forEach(child => {
-                    html += renderRecursivePlan(child, accumulators, container, stages, executionId);
+                    html += renderRecursivePlan(child, accumulators, container, stages, allExecutions);
                 });
             }
             html += `   </div>
@@ -561,36 +562,110 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // --- Construct Details Array (Strict Order per Type) ---
 
-        if (name.includes("insertinto") || name.includes("command") || name.includes("write")) {
-            // Write To Hdfs Order: File Written, Rows, Partitions Written, Bytes Written, Average File Size, Partition By, File Path, Format
+        // --- DataFlint Logic Port: Metric Processing ---
+        function humanFileSize(bytes) {
+            if (!bytes || bytes === 0) return "0 B";
+            const k = 1024;
+            const dm = 2;
+            const sizes = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
 
-            // STAGE FALLBACK
-            const stageM = getStageMetrics(stages, executionId);
+        // Ported from MetricProcessors.tsx + Enhanced with Cross-Execution Scavenging
+        function processOutputNodeMetrics(node, accumulators, stages, allExecutions) {
+            const metrics = [];
 
-            // Priorities: Explicit Written > Generic (if no read conflict) > Stage Fallback
-            let finalFilesWritten = collectedMetrics.filesWritten > 0 ? collectedMetrics.filesWritten : 0;
-            // If filesWritten is 0 but we have generic "files" and it is Write node, use it? No, generic "files" might be read.
+            // 1. Local Node Metrics
+            let sources = node._mergedAccums ?
+                Object.keys(node._mergedAccums).map(k => ({ name: k, isMerged: true, ids: node._mergedAccums[k] })) :
+                (node.metrics || []);
 
-            let finalBytesWritten = collectedMetrics.bytesWritten > 0 ? collectedMetrics.bytesWritten : collectedMetrics.bytes;
-            if (stageM.bytes > finalBytesWritten) finalBytesWritten = stageM.bytes;
+            const getVal = (mItem) => {
+                if (mItem.isMerged) {
+                    let t = 0; mItem.ids.forEach(id => { t += Number(accumulators[id] || 0); }); return t;
+                } else {
+                    return Number(accumulators[mItem.accumulatorId] || 0);
+                }
+            };
 
-            let finalRowsWritten = collectedMetrics.rowsWritten > 0 ? collectedMetrics.rowsWritten : collectedMetrics.rows;
-            if (stageM.rows > finalRowsWritten) finalRowsWritten = stageM.rows;
+            let bytesWritten = 0;
+            let rows = 0;
 
-            let finalPartitions = collectedMetrics.partitionsWritten;
+            // Helper for loose matching
+            const isBytes = (n) => {
+                const s = n.toLowerCase().replace(/\s/g, '');
+                return s.includes("byteswritten") || s.includes("outputbytes") || s === "writtenoutput" || s === "bytes";
+            };
+            const isRows = (n) => {
+                const s = n.toLowerCase().replace(/\s/g, '');
+                return s.includes("rowswritten") || s.includes("outputrows") || s === "numberofoutputrows" || s === "rows";
+            };
 
-            let avgSize = 0;
-            if (finalFilesWritten > 0 && finalBytesWritten > 0) {
-                avgSize = finalBytesWritten / finalFilesWritten;
+            sources.forEach(m => {
+                const val = getVal(m);
+                const name = m.name;
+
+                if (isBytes(name)) bytesWritten = val;
+                if (isRows(name)) rows = val;
+            });
+
+            // 2. Cross-Execution Scavenging (The "Seeker" Logic)
+            if (allExecutions && allExecutions.length > 0) {
+                let scavengedBytes = 0;
+                let scavengedRows = 0;
+
+                allExecutions.forEach(exec => {
+                    // Find ANY node that has the metrics we look for.
+                    function scanAllNodes(n) {
+                        if (!n) return;
+
+                        if (n.metrics) {
+                            n.metrics.forEach(m => {
+                                const mName = m.name;
+                                const mVal = Number(accumulators[m.accumulatorId] || 0);
+
+                                if (isBytes(mName)) scavengedBytes = Math.max(scavengedBytes, mVal);
+                                if (isRows(mName)) scavengedRows = Math.max(scavengedRows, mVal);
+                            });
+                        }
+                        if (n.children) n.children.forEach(scanAllNodes);
+                    }
+                    scanAllNodes(exec.plan);
+                });
+
+                bytesWritten = Math.max(bytesWritten, scavengedBytes);
+                rows = Math.max(rows, scavengedRows);
             }
 
-            if (finalFilesWritten > 0) details.push({ label: "Files Written", value: finalFilesWritten.toLocaleString() });
-            if (finalRowsWritten > 0) details.push({ label: "Rows", value: finalRowsWritten.toLocaleString() });
-            if (finalPartitions > 0) details.push({ label: "Partitions Written", value: finalPartitions.toLocaleString() });
-            if (finalBytesWritten > 0) details.push({ label: "Bytes Written", value: formatBytes(finalBytesWritten) });
-            if (avgSize > 0) details.push({ label: "Average File Size", value: formatBytes(avgSize) });
+            // 3. Stage Global Fallback (The "Safety Net")
+            // Finally, check against the raw Stage Output metrics (Task Metrics)
+            const stageM = getStageMetrics(stages);
 
-            if (parsedMeta.partitionBy) details.push({ label: "Partition By", value: parsedMeta.partitionBy });
+            rows = Math.max(rows, stageM.rows);
+            bytesWritten = Math.max(bytesWritten, stageM.bytes);
+
+
+            // Construct Final Metric List
+            if (rows > 0) metrics.push({ name: "Rows", value: rows.toLocaleString() });
+            if (bytesWritten > 0) metrics.push({ name: "Bytes Written", value: humanFileSize(bytesWritten) });
+
+            return metrics;
+        }
+
+        if (name.includes("insertinto") || name.includes("command") || name.includes("write")) {
+            // Write To Hdfs Order: Rows, Bytes Written, Partition By, File Path, Format
+
+            // 1. Metrics First
+            const outputMetrics = processOutputNodeMetrics(node, accumulators, stages, allExecutions);
+            outputMetrics.forEach(m => details.push({ label: m.name, value: m.value }));
+
+            // 2. Metadata Next
+            if (parsedMeta.partitionBy) {
+                // Remove #ID suffixes (e.g. platform#34 -> platform)
+                const cleanPartition = parsedMeta.partitionBy.replace(/#\d+/g, '');
+                details.push({ label: "Partition By", value: cleanPartition });
+            }
             if (parsedMeta.path) {
                 let p = parsedMeta.path;
                 if (p.length > 35) p = p.substring(0, 12) + "..." + p.substring(p.length - 18);
@@ -622,6 +697,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             // Ensure partition filters show "Full Scan" if empty or missing, but ONLY if explicit partition filters field was expected
             // DataFlint shows "Partition Filters: Full Scan" when empty.
+            // In my port, parseDataFlintScan returns empty string or "Full Scan" logic?
+            // In my port, parseDataFlintScan returns `partitionFilters: "Full Scan"` if empty regex.
+            // So if parsedMeta.partitionFilters is set, use it.
             if (parsedMeta.partitionFilters) {
                 details.push({ label: "Partition Filters", value: parsedMeta.partitionFilters });
             } else {
@@ -664,7 +742,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (node.children && node.children.length > 0) {
             html += '<div class="sql-children">';
-            node.children.forEach(child => html += renderRecursivePlan(child, accumulators));
+            node.children.forEach(child => html += renderRecursivePlan(child, accumulators, container, stages, allExecutions));
             html += '</div>';
         }
         html += '</div>';
@@ -737,7 +815,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 // 2. Then flattened and deduplicate Scans
                 const finalPlan = optimizePlan(simplifiedPlan);
 
-                sqlContent.innerHTML = renderRecursivePlan(finalPlan, data.accumulators || {});
+                // Pass Object.values(data.sqlExecutions) to enable scavenging
+                sqlContent.innerHTML = renderRecursivePlan(finalPlan, data.accumulators || {}, null, data.stages, Object.values(data.sqlExecutions));
             }
         } else {
             sqlContainer.classList.add('hidden');

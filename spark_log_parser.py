@@ -6,6 +6,92 @@ import pandas as pd
 import argparse
 from typing import List, Dict, Any
 
+import glob
+import subprocess
+import re
+
+def get_log_lines(log_path):
+    """Yields lines from log file, handling ZSTD rolling logs transparently.
+    Also handles 'appstatus_' files by redirecting to the associated rolling logs."""
+    
+    dirname = os.path.dirname(log_path)
+    basename = os.path.basename(log_path)
+    
+    # 1. Handle appstatus_ redirect
+    if basename.startswith("appstatus_"):
+        app_id = basename.replace("appstatus_", "")
+        # Look for events_1_{app_id}*
+        # We need to construct the search pattern for events.
+        # events_*_{app_id}* covers events_1, events_2, etc.
+        # Note: app_id is "application_..." usually.
+        # Pattern: events_*_application_...
+        
+        # Check if we have events files
+        pattern = os.path.join(dirname, f"events_*_{app_id}*")
+        candidates = glob.glob(pattern)
+        
+        if candidates:
+            # We found rolling logs!
+            def get_index(f):
+                fname = os.path.basename(f)
+                m = re.match(r"events_(\d+)_", fname)
+                return int(m.group(1)) if m else 999999
+            
+            sorted_files = sorted(candidates, key=get_index)
+            
+            # Decide if we need zstd
+            # If any file ends with .zstd or .zst, use zstd -dc for all?
+            # Usually they are consistent.
+            use_zstd = any(f.endswith(".zstd") or f.endswith(".zst") for f in sorted_files)
+            
+            if use_zstd:
+                cmd = ["zstd", "-dc"] + sorted_files
+                print(f"Decoding rolling logs (via appstatus): {cmd}")
+                try:
+                    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    for line in process.stdout: yield line
+                    process.wait()
+                except Exception as e:
+                    print(f"Error streaming zstd: {e}")
+            else:
+                 # Concatenate plain text files
+                 for fpath in sorted_files:
+                     with open(fpath, 'r', encoding='utf-8', errors='ignore') as f:
+                         for line in f: yield line
+            return # Done with appstatus redirect
+
+    # 2. Existing Direct ZSTD logic
+    if log_path.endswith(".zstd") and "events_" in basename:
+         match = re.match(r"events_\d+_(.+)\.zstd", basename)
+         if match:
+             app_id_part = match.group(1)
+             pattern = os.path.join(dirname, f"events_*_{app_id_part}.zstd")
+             candidates = glob.glob(pattern)
+             def get_index(f):
+                 fname = os.path.basename(f)
+                 m = re.match(r"events_(\d+)_", fname)
+                 return int(m.group(1)) if m else 999999
+             sorted_files = sorted(candidates, key=get_index)
+             cmd = ["zstd", "-dc"] + sorted_files
+             print(f"Decoding rolling logs: {cmd}")
+             try:
+                 process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                 for line in process.stdout: yield line
+                 process.wait()
+                 if process.returncode != 0:
+                      print(f"zstd processing error: {process.stderr.read()}")
+             except Exception as e:
+                 print(f"Error streaming zstd: {e}")
+         else:
+             cmd = ["zstd", "-dc", log_path]
+             try:
+                 process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                 for line in process.stdout: yield line
+             except: pass
+    else:
+         with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+             for line in f: yield line
+
 def parse_memory(mem_str):
     if not mem_str: return 0
     mem_str = str(mem_str).lower()
@@ -81,24 +167,28 @@ def analyze_single_application(files: List[str]) -> Dict[str, Any]:
     files = sorted(files)
     
     for file_path in files:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            for line in f:
+        if True: # Indentation shim to match original 'with open' level
+            lines_gen = get_log_lines(file_path)
+            for line in lines_gen:
                 try:
                     event = json.loads(line)
                     event_type = event.get("Event")
+                    ts = event.get("Timestamp", 0) 
                     
                     if event_type == "SparkListenerApplicationStart":
-                        app_name = event.get("App Name", "Unknown")
-                        app_id = event.get("App ID", "Unknown")
+                        app_id = event.get("App ID", app_id)
+                        app_name = event.get("App Name", app_name)
                         app_start_time = event.get("Timestamp", 0)
+                        if "Timestamp" in event:
+                             executor_time_series.append({"time": event["Timestamp"], "count": 0})
                         
                     elif event_type == "SparkListenerApplicationEnd":
                         app_end_time = event.get("Timestamp", 0)
                         
                     elif event_type == "SparkListenerEnvironmentUpdate":
                         spark_props = event.get("Spark Properties", {})
-                        driver_cores = int(spark_props.get("spark.driver.cores", 0))
                         driver_memory = parse_memory(spark_props.get("spark.driver.memory", "0"))
+                        driver_cores = int(spark_props.get("spark.driver.cores", 0))
                         executor_cores = int(spark_props.get("spark.executor.cores", 1))
                         executor_memory = parse_memory(spark_props.get("spark.executor.memory", "0"))
                         
@@ -350,13 +440,13 @@ def analyze_stage_details(files: List[str]) -> List[Dict]:
     stages_to_execution = {}
     
     for file_path in files:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            for line in f:
+        if True: # Indentation shim to match original 'with open' level
+            lines_gen = get_log_lines(file_path)
+            for line in lines_gen:
                 try:
                     event = json.loads(line)
                     event_type = event.get("Event")
-                    ts = event.get("Timestamp", 0) # Most events have Timestamp? No, not all.
-                    # SparkListenerExecutorAdded has "Timestamp"
+                    ts = event.get("Timestamp", 0) 
                     
                     if event_type == "SparkListenerApplicationStart":
                         app_info["id"] = event.get("App ID", app_info["id"])
@@ -560,95 +650,80 @@ def analyze_stage_details(files: List[str]) -> List[Dict]:
                     continue
                     
     # Finalize
-    result_list = []
-    print(f"Found {len(sql_executions)} SQL Executions")
-    for sid, data in stages.items():
-        # Link to Execution ID
-        if sid in stages_to_execution:
-            data["Execution ID"] = stages_to_execution[sid]
-        
-        # Duration
-        sub = data.get("Submission Time", 0)
-        comp = data.get("Completion Time", 0)
-        if sub > 0 and comp > 0:
-            data["Duration"] = (comp - sub) / 1000.0
-        else:
-            data["Duration"] = 0
-        
-        # Avg metrics
-        tasks = data.get("Tasks", 0)
-        if tasks > 0:
-            data["Avg Input"] = data.get("Input", 0) / tasks
-            data["Avg Shuffle Read"] = data.get("Shuffle Read", 0) / tasks
-        else:
-            data["Avg Input"] = 0
-            data["Avg Shuffle Read"] = 0
-            
-        result_list.append(data)
-        
-    # Sort by ID
-    sorted_stages = sorted(result_list, key=lambda x: x["Stage ID"])
+    stage_list = sorted(stages.values(), key=lambda x: int(x["Stage ID"]))
+    
+    # Add aggregated metrics to sql executions if needed (already done in parser logic?)
+    # The parser logic captured nodes and metrics.
     
     return {
-        "appInfo": app_info,
-        "stages": sorted_stages,
-        "executorTimeSeries": executor_time_series,
-        "sqlExecutions": sql_executions,
-        "accumulators": accumulators,
-        "stagesToExecution": stages_to_execution
+        "appId": app_info["id"],
+        "appName": app_info["name"],
+        "stages": stage_list,
+        "sqlExecutions": sorted(sql_executions.values(), key=lambda x: x["startTime"]),
+        "executorTimeSeries": executor_time_series
     }
 
-def main():
-    parser = argparse.ArgumentParser(description='Spark Event Log Parser')
-    parser.add_argument('--files', nargs='+', required=True, help='List of event log files')
-    parser.add_argument('--output', required=True, help='Output CSV file path')
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Parse Spark Event Logs")
+    # Support both positional and flagged arguments to handle web_app calling convention
+    parser.add_argument("pos_files", nargs="*", help="Log files to parse (positional)")
+    parser.add_argument("--files", nargs="+", help="Log files to parse (flag)")
+    parser.add_argument("--output", help="Output CSV file path for summary analysis")
     
     args = parser.parse_args()
     
-    # Grouping Logic
-    app_groups = {}
-    for f in args.files:
-        basename = os.path.basename(f)
-        import re
-        match = re.search(r"(application_\d+_\d+)", basename)
-        if match:
-            app_id_key = match.group(1)
-            if app_id_key not in app_groups:
-                app_groups[app_id_key] = []
-            app_groups[app_id_key].append(f)
-        else:
-            app_groups[basename] = [f]
-            
-    results = []
-    print(f"Analyzing {len(app_groups)} applications...")
+    # Prioritize --files, fallback to positional
+    files = args.files if args.files else args.pos_files
     
-    for app_key, files in app_groups.items():
-        metrics = analyze_single_application(files)
-        results.append(metrics)
-        
-    df = pd.DataFrame(results)
+    if not files:
+        parser.print_help()
+        sys.exit(1)
     
-    # Reorder columns to match definitions (optional but good)
-    desired_order = [
-        "Start Date", "Application ID", "Application Name", "Duration (Sec)", "Total Input", "Total Output",
-        "Driver Cores", "Driver Memory", "Executor Cores", "Executor Memory", "Executor Overhead Memory",
-        "Requested Executors", "Max Active Executors", "Total Cores Capacity", "Total Memory Capacity",
-        "Avg Idle Cores (%)", "Peak Memory Usage (%)", "Peak Heap Usage",
-        "Total Shuffle Read", "Total Shuffle Write",
-        "Max Shuffle Read (Stage)", "Max Shuffle Read Stage ID",
-        "Max Shuffle Write (Stage)", "Max Shuffle Write Stage ID",
-        "Max Shuffle Read (Job)", "Max Shuffle Read Job ID",
-        "Max Shuffle Write (Job)", "Max Shuffle Write Job ID",
-        "Total Spill (Memory)", "Total Spill (Disk)",
-        "Max Spill Memory (Stage)", "Max Spill Stage ID"
-    ]
-    
-    # Select only existing columns (avoid key errors depending on what happened)
-    cols = [c for c in desired_order if c in df.columns]
-    df = df[cols]
-    
-    df.to_csv(args.output, index=False)
-    print(f"Analysis complete. Results saved to {args.output}")
+    if args.output:
+        # Summary Analysis Mode (for Web App Summary)
+        # Iterate over each file and treat it as a separate application analysis
+        results = []
+        try:
+            for f in files:
+                # analyze_single_application now expects a list of files for A SINGLE app.
+                # Since the UI passes main entry points (app file or events_1), we pass [f].
+                # get_log_lines handles finding siblings for rolling logs.
+                try:
+                    metrics = analyze_single_application([f])
+                    results.append(metrics)
+                except Exception as e:
+                    print(f"Error analyzing {f}: {e}")
+                    # Add a partial result or skip?
+                    # Let's add a placeholder to show error in CSV
+                    results.append({
+                        "Application ID": os.path.basename(f),
+                        "Application Name": "Error: " + str(e),
+                        "Start Date": "Error"
+                    })
 
-if __name__ == "__main__":
-    main()
+            if not results:
+                print("No results generated.")
+                sys.exit(1)
+
+            # Convert to DataFrame and save
+            df = pd.DataFrame(results)
+            # Ensure directory exists
+            out_dir = os.path.dirname(args.output)
+            if out_dir and not os.path.exists(out_dir):
+                os.makedirs(out_dir)
+            
+            df.to_csv(args.output, index=False)
+            print(f"Summary analysis saved to {args.output}")
+        except Exception as e:
+            print(f"Error during summary analysis: {e}")
+            sys.exit(1)
+            
+    else:
+        # Detailed Analysis Mode (Standard CLI or Debug)
+        # If multiple files are passed here (e.g. app and events), it might be intended as one app?
+        # But for 'analyze_stage_details', usually it's one app's files.
+        # If the UI calls this for "Detail Analysis", it passes a single file (or list of siblings).
+        # We'll leave this as is for now, assuming detail view calls with one app's context.
+        data = analyze_stage_details(files)
+        print(json.dumps(data, indent=2, default=str))
