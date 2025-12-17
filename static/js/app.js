@@ -965,8 +965,74 @@ document.addEventListener('DOMContentLoaded', () => {
     btnViewRecent.addEventListener('click', fetchRecentResults);
     btnBack.addEventListener('click', showList);
     btnDownloadCsv.addEventListener('click', () => {
-        window.location.href = '/api/results/download';
+        downloadCsvWithCurrentUnit();
     });
+
+    function downloadCsvWithCurrentUnit() {
+        if (!currentResults || currentResults.length === 0) {
+            alert('다운로드할 데이터가 없습니다.');
+            return;
+        }
+
+        // 1. Determine columns (respecting current column order if possible, or default keys)
+        // If columnOrder is empty, init it
+        let cols = columnOrder.length > 0 ? columnOrder : Object.keys(currentResults[0]);
+
+        // 2. Build Header Row
+        // For header text, we want to append unit like "Driver Memory (MB)" if it's a byte column
+        const headerRow = cols.map(key => {
+            if (BYTE_COLUMNS.includes(key) && currentUnit !== 'B') {
+                return `"${key} (${currentUnit})"`;
+            }
+            return `"${key}"`;
+        });
+
+        const csvRows = [headerRow.join(',')];
+
+        // 3. Build Data Rows
+        currentResults.forEach(row => {
+            const values = cols.map(key => {
+                let val = row[key];
+
+                if (BYTE_COLUMNS.includes(key)) {
+                    // Convert unit
+                    val = formatBytes(val, currentUnit);
+                    // Note: formatBytes returns number or string. 
+                    // If number, it might need formatting?
+                    // formatBytes inside already returns number or string "0".
+                    // Let's just use it as is.
+                }
+
+                // Handle null/undefined
+                if (val === null || val === undefined) {
+                    val = "";
+                }
+
+                // Escape quotes
+                const stringVal = String(val).replace(/"/g, '""');
+                return `"${stringVal}"`;
+            });
+            csvRows.push(values.join(','));
+        });
+
+        // 4. Create Blob and Download
+        const csvString = csvRows.join('\n');
+        // Add BOM for Excel compatibility with UTF-8
+        const bom = '\uFEFF';
+        const blob = new Blob([bom + csvString], { type: 'text/csv;charset=utf-8;' });
+
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+
+        link.setAttribute('href', url);
+        link.setAttribute('download', `spark_analysis_result_${currentUnit}_${timestamp}.csv`);
+        link.style.visibility = 'hidden';
+
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
     logoBtn.addEventListener('click', showList);
 
     // Upload & Delete Listeners
