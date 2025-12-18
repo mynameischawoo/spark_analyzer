@@ -114,36 +114,126 @@ def analyze_job_operations(log_files: List[str]) -> List[Dict[str, Any]]:
             is_write = True
             
         # Check for Shuffle (Exchange)
-        is_shuffle = 'shuffle write time' in m_names
+        is_shuffle = 'shuffle records written' in m_names or 'shuffle bytes written' in m_names or 'Exchange' in name
         
         # Check for Aggregate
         is_agg = 'time in aggregation build' in m_names
         
+        # Check for Filter
+        is_filter = 'number of output rows' in m_names and 'Filter' in name
+        
+        # Check for Project (Select)
+        is_project = 'Project' in name
+        
+        # Check for Coalesce
+        is_coalesce = 'Coalesce' in name
+        
         # Decide if we track this node
-        if is_read or is_write or is_shuffle or is_agg:
+        if is_read or is_write or is_shuffle or is_agg or is_filter or is_project or is_coalesce:
             # Generate unique ID for this node instance in this plan
+            # Project/Coalesce might not have metrics. Use safe signature.
             m_map = {m['name']: m['accumulatorId'] for m in metrics}
+            
             if m_map:
                 sig = tuple(sorted(m_map.values()))
+            else:
+                # Use a unique signature for metric-less nodes
+                sig = f"node_{id(node)}"
                 
-                info = {
-                    "type": "read" if is_read else ("write" if is_write else ("shuffle" if is_shuffle else "agg")),
+            info = {
+                    "type": "read" if is_read else ("write" if is_write else ("shuffle" if is_shuffle else ("agg" if is_agg else ("filter" if is_filter else ("project" if is_project else "coalesce"))))),
                     "metrics_map": m_map,
                     "accumulators": {},
                     "task_input_bytes": 0, "task_input_records": 0, # For reads
                     "task_output_bytes": 0, "task_output_records": 0, # For writes
                     "task_files_est": 0
                 }
+            
+            if is_read:
+                info["meta"] = parse_read_metadata(node)
+            elif is_write:
+                info["meta"] = parse_write_metadata(node.get("nodeName", ""), node.get("simpleString", ""))
+            elif is_filter:
+                # Parse Condition from simpleString: "Filter (condition)"
+                s_str = node.get("simpleString", "")
+                cond = "Unknown"
+                if s_str.startswith("Filter "):
+                    cond = s_str[7:].strip()
+                info["meta"] = {"Condition": cond}
+            elif is_project:
+                # Parse Selected Fields from simpleString: "Project [col1, col2]"
+                s_str = node.get("simpleString", "")
+                fields = "Unknown"
+                if s_str.startswith("Project [") and s_str.endswith("]"):
+                    fields = s_str[9:-1]
+                info["meta"] = {"Selected Fields": fields}
+            elif is_agg:
+                # Parse Keys and Functions from simpleString
+                s_str = node.get("simpleString", "")
+                keys = "Unknown"
+                funcs = "Unknown"
                 
-                if is_read:
-                    info["meta"] = parse_read_metadata(node)
-                elif is_write:
-                    info["meta"] = parse_write_metadata(node.get("nodeName", ""), node.get("simpleString", ""))
-                else:
-                    info["meta"] = {}
+                k_start = s_str.find("keys=[")
+                if k_start != -1:
+                    k_end = s_str.find("]", k_start)
+                    if k_end != -1:
+                        keys = s_str[k_start+6:k_end]
                 
-                node["_analyzer_sig"] = sig
-                tracked[sig] = info
+                f_start = s_str.find("functions=[")
+                if f_start != -1:
+                    f_end = s_str.find("]", f_start)
+                    if f_end != -1:
+                        funcs = s_str[f_start+11:f_end]
+                        
+                info["meta"] = {"Aggregate Keys": keys, "Aggregate Functions": funcs}
+            elif is_shuffle:
+                 # Parse Partitioning from simpleString: "Exchange hashpartitioning(..., 4), ..."
+                 s_str = node.get("simpleString", "")
+                 part = "Unknown"
+                 num_part = "Unknown"
+                 
+                 # Heuristic: looks for 'partitioning'
+                 # Example: Exchange hashpartitioning(sscode#27, ..., 4), ...
+                 if "Exchange" in s_str:
+                     parts = s_str.split("Exchange ", 1)
+                     if len(parts) > 1:
+                         # content after Exchange
+                         rest = parts[1]
+                         # partitioning usually until first comma or ')'
+                         # e.g. "hashpartitioning(blah, 4), ENSURE_REQUIREMENTS"
+                         # Let's verify structure
+                         p_end = rest.find(", ENSURE")
+                         if p_end == -1: p_end = len(rest)
+                         part_str = rest[:p_end].strip()
+                         
+                         # Parse Num Partitions if possible (usually last arg in parens)
+                         # hashpartitioning(col, 4)
+                         r_paren = part_str.rfind(")")
+                         if r_paren != -1:
+                             # search backwards for comma
+                             l_comma = part_str.rfind(",", 0, r_paren)
+                             if l_comma != -1:
+                                 try:
+                                     num_part = int(part_str[l_comma+1:r_paren].strip())
+                                 except: pass
+                         
+                         part = part_str
+                 
+                 info["meta"] = {"Partitioning": part, "Num Partitions": num_part}
+            elif is_coalesce:
+                 # Parse Coalesce target: "Coalesce 1"
+                 s_str = node.get("simpleString", "")
+                 num_part = "Unknown"
+                 if "Coalesce" in s_str:
+                     try:
+                         num_part = int(s_str.replace("Coalesce", "").strip())
+                     except: pass
+                 info["meta"] = {"Num Partitions": num_part}
+            else:
+                info["meta"] = {}
+            
+            node["_analyzer_sig"] = sig
+            tracked[sig] = info
                 
         for child in node.get("children", []):
             find_tracked_nodes(child, tracked)
@@ -234,6 +324,43 @@ def analyze_job_operations(log_files: List[str]) -> List[Dict[str, Any]]:
                                 writes[0]["task_output_bytes"] += bw
                                 writes[0]["task_output_records"] += rw
                                 if bw > 0: writes[0]["task_files_est"] += 1
+                                
+                elif evt == "SparkListenerStageCompleted":
+                    # Capture hidden accumulators for Filters
+                    stage_info = event.get("Stage Info", {})
+                    accumulables = stage_info.get("Accumulables", [])
+                    
+                    # Extract key metrics
+                    scan_output_ids = set()
+                    shuffle_records = 0
+                    candidate_rows = []
+                    
+                    for acc in accumulables:
+                        name = acc.get("Name")
+                        val = int(acc.get("Value", 0))
+                        aid = acc.get("ID")
+                        
+                        if name == "shuffle records written":
+                            shuffle_records = val
+                            
+                        if name == "number of output rows":
+                            candidate_rows.append((aid, val))
+                            
+                    # We store this info to link later: 
+                    # Stage -> {scan_ids_found: [], candidates: [], shuffle: val}
+                    # But we need to link it to Execution.
+                    # We can use stage_to_execution map? But that map is built during JobStart.
+                    # StageCompleted comes after. So map should be ready.
+                    sid = stage_info.get("Stage ID")
+                    eid = stage_to_execution.get(sid)
+                    
+                    if eid in execution_info:
+                        if "stage_metrics" not in execution_info[eid]:
+                             execution_info[eid]["stage_metrics"] = []
+                        execution_info[eid]["stage_metrics"].append({
+                            "candidates": candidate_rows,
+                            "shuffle": shuffle_records
+                        })
 
             except: continue
 
@@ -248,6 +375,74 @@ def analyze_job_operations(log_files: List[str]) -> List[Dict[str, Any]]:
     
     for info in start_ordered:
         
+        # Pre-process stage metrics to find Filter outputs
+        # We need to map Filter -> Scan ID
+        # But 'tracked_nodes' doesn't explicitly store parent-child.
+        # However, we can infer it: Filter usually shares the same Stage as its child Scan.
+        # And we know the Scan's "number of output rows" accumulator ID from tracked_nodes.
+        # Let's iterate tracked Reads, find their ID, then find the corresponding Stage, then find the 'candidate' that is not Scan/Shuffle.
+        
+        filter_overrides = {} # FilterSig -> Rows
+        
+        reads = [n for n in info["tracked_nodes"].values() if n["type"] == "read"]
+        filters = [n for n in info["tracked_nodes"].values() if n["type"] == "filter"]
+        
+        # Assuming 1-to-1 mapping or simple branches.
+        # For each read, find the stage metrics that contain its accumulator ID.
+        for read in reads:
+            read_rows_id = read["metrics_map"].get("number of output rows")
+            if not read_rows_id: continue
+            
+            # Find matching stage metric block
+            target_block = None
+            for block in info.get("stage_metrics", []):
+                # block['candidates'] is list of (id, val)
+                ids = [c[0] for c in block["candidates"]]
+                if read_rows_id in ids:
+                    target_block = block
+                    break
+            
+            if target_block:
+                # We found the stage. Now find the Filter output.
+                # Filter Output = Value in candidates that is NOT read_rows (or duplicates) AND NOT shuffle.
+                # Also Scan might have duplicates (e.g. 211 and 296).
+                # Shuffle records is 'target_block["shuffle"]'.
+                
+                scan_val = 0
+                for c in target_block["candidates"]:
+                    if c[0] == read_rows_id: scan_val = c[1]
+                
+                # Filter candidates:
+                # Exclude if val == scan_val (unless filter didn't filter anything? risk.)
+                # Exclude if val == shuffle (unless shuffle == filter?)
+                # Exclude if val == 0
+                
+                potential = []
+                for aid, val in target_block["candidates"]:
+                    if val == 0: continue
+                    if val == target_block["shuffle"]: continue
+                    # Heuristic: Filter output usually < Scan output
+                    if val >= scan_val and scan_val > 0: continue 
+                    potential.append(val)
+                
+                if potential:
+                    # Pick largest? Filter output is intermediate.
+                    # In our case: 92k (Scan 162k). 1.9k (Scan 162k).
+                    best_match = max(potential)
+                    
+                    # Assign to a Filter. Which one?
+                    # The one "closest" to this Read?
+                    # Since we don't have graph structure here easily, assign to the FIRST Filter node we haven't assigned yet?
+                    # Risky if multiple filters in chain.
+                    # But in this job, 1 Filter per branch.
+                    # Let's assign to the first filter that currently has 0 rows.
+                    for f in filters:
+                        if filter_overrides.get(tuple(sorted(f["metrics_map"].values()))) is None:
+                             # Use signature as key
+                             sig = tuple(sorted(f["metrics_map"].values()))
+                             filter_overrides[sig] = best_match
+                             break
+        
         def resolve_metrics(node_sig):
             n_data = info["tracked_nodes"].get(node_sig)
             if not n_data: return None
@@ -256,12 +451,7 @@ def analyze_job_operations(log_files: List[str]) -> List[Dict[str, Any]]:
             accs = n_data["accumulators"]
             res = {}
              
-            # Time Metrics Calculation (Sum of accumulators)
-            # Scan: scan time + metadata time
-            # Write: task commit time + job commit time
-            # Shuffle: shuffle write time
-            # Agg: time in aggregation build
-            
+            # Time Metrics
             dur_ms = 0
             
             if n_data["type"] == "read":
@@ -302,10 +492,46 @@ def analyze_job_operations(log_files: List[str]) -> List[Dict[str, Any]]:
                  
             elif n_data["type"] == "shuffle":
                  dur_ms += accs.get(m.get("shuffle write time"), 0)
-                 # Wait time usually on read side?
                  
             elif n_data["type"] == "agg":
                  dur_ms += accs.get(m.get("time in aggregation build"), 0)
+                 res.update(n_data["meta"])
+                 
+                 # Infer Distinct
+                 keys = n_data["meta"].get("Aggregate Keys", "")
+                 funcs = n_data["meta"].get("Aggregate Functions", "")
+                 if keys and (not funcs or funcs == "[]" or funcs == "Unknown"):
+                     res["Is Distinct"] = True
+
+            elif n_data["type"] == "shuffle":
+                 dur_ms += accs.get(m.get("shuffle write time"), 0)
+                 
+                 # Metrics
+                 s_bytes = accs.get(m.get("shuffle bytes written"), 0)
+                 s_recs = accs.get(m.get("shuffle records written"), 0)
+                 if s_bytes > 0: res["Shuffle Bytes Written"] = s_bytes
+                 if s_recs > 0: res["Shuffle Records Written"] = s_recs
+                 
+                 res.update(n_data["meta"])
+                 
+            elif n_data["type"] == "coalesce":
+                 res["Operation"] = "Repartition (Coalesce)"
+                 res.update(n_data["meta"])
+
+            elif n_data["type"] == "filter":
+                 raw_rows = accs.get(m.get("number of output rows"), 0)
+                 
+                 # Check override
+                 if raw_rows == 0:
+                      sig = tuple(sorted(m.values()))
+                      if sig in filter_overrides:
+                           raw_rows = filter_overrides[sig]
+                           
+                 res["Output Rows"] = raw_rows
+                 res.update(n_data["meta"])
+
+            elif n_data["type"] == "project":
+                 res.update(n_data["meta"])
                  
             # Add Duration Field
             if dur_ms > 0:
