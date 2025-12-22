@@ -67,6 +67,8 @@
                 <div class="panel-header">
                     <h2>분석 결과</h2>
                     <div class="header-controls">
+                        <button id="btn-create-graph" class="primary-btn"
+                            style="background-color: #17a2b8; margin-right: 10px;">그래프 만들기</button>
                         <div class="unit-toggles">
                             <span>단위 변환: </span>
                             <button class="unit-btn" data-unit="B">B</button>
@@ -79,6 +81,12 @@
                         <button id="btn-back" class="secondary-btn">목록으로 돌아가기</button>
                     </div>
                 </div>
+
+                <!-- Summary Chart Container -->
+                <div id="summary-chart-container" class="chart-container hidden" style="height: 400px; padding: 20px;">
+                    <canvas id="summaryChart"></canvas>
+                </div>
+
                 <div class="table-container horizontal-scroll">
                     <table id="result-table">
                         <thead></thead>
@@ -146,7 +154,7 @@
 
     <link rel="stylesheet" href="/static/css/style.css?v=40">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="/static/js/app.js?v=53"></script>
+    <script src="/static/js/app.js?v=100"></script>
 </body>
 
 </html>

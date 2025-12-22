@@ -1,4 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
+    console.log("APP JS LOADED v100 - WITH CHECKBOXES");
+    console.log("APP JS LOADED v999 - WITH CHECKBOXES");
     const listTableBody = document.querySelector('#log-table tbody');
     const resultTableHead = document.querySelector('#result-table thead');
     const resultTableBody = document.querySelector('#result-table tbody');
@@ -10,10 +12,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnBack = document.getElementById('btn-back');
     const btnBackFromDetail = document.getElementById('btn-back-from-detail');
     const btnDownloadCsv = document.getElementById('btn-download-csv');
+    const btnCreateGraph = document.getElementById('btn-create-graph');
+
     // ...
 
     const panelList = document.getElementById('log-selection-view');
     const panelResult = document.getElementById('analysis-result-view');
+    const summaryChartContainer = document.getElementById('summary-chart-container');
     const panelDetail = document.getElementById('detail-result-view');
     const loadingOverlay = document.getElementById('loading-overlay');
 
@@ -24,7 +29,9 @@ document.addEventListener('DOMContentLoaded', () => {
     btnStartDetail.addEventListener('click', startDetailAnalysis);
     btnViewRecent.addEventListener('click', fetchRecentResults);
     btnBack.addEventListener('click', showList);
+    btnBack.addEventListener('click', showList);
     btnBackFromDetail.addEventListener('click', showList);
+    btnCreateGraph.addEventListener('click', handleCreateGraph);
     // ...
 
     async function startDetailAnalysis() {
@@ -62,6 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     let executorChart = null;
+    let summaryChart = null;
 
     function renderExecutorChart(timeSeries) {
         const canvas = document.getElementById('executorChart');
@@ -1359,8 +1367,20 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // Create Headers based on columnOrder
+        // Create Headers
         const trHead = document.createElement('tr');
+
+        // Add Checkbox Column Header
+        const thCheck = document.createElement('th');
+        const checkAll = document.createElement('input');
+        checkAll.type = 'checkbox';
+        checkAll.addEventListener('change', (e) => {
+            const checks = resultTableBody.querySelectorAll('.row-checkbox');
+            checks.forEach(c => c.checked = e.target.checked);
+        });
+        thCheck.appendChild(checkAll);
+        trHead.appendChild(thCheck);
+
         columnOrder.forEach((key, index) => {
             const th = document.createElement('th');
             let text = key;
@@ -1409,8 +1429,18 @@ document.addEventListener('DOMContentLoaded', () => {
         resultTableHead.appendChild(trHead);
 
         // Create Rows based on columnOrder
-        displayData.forEach(row => {
+        displayData.forEach((row, index) => {
             const tr = document.createElement('tr');
+
+            // Add Checkbox Column Cell
+            const tdCheck = document.createElement('td');
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'row-checkbox';
+            checkbox.value = index; // Store index to retrieve data
+            tdCheck.appendChild(checkbox);
+            tr.appendChild(tdCheck);
+
             columnOrder.forEach(key => {
                 const td = document.createElement('td');
                 let val = row[key];
@@ -1440,6 +1470,152 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             resultTableBody.appendChild(tr);
         });
+    }
+
+
+
+    function handleCreateGraph() {
+        console.log("Create Graph Button Clicked");
+        // 1. Get Selected Data
+        const checks = Array.from(resultTableBody.querySelectorAll('.row-checkbox:checked'));
+        if (checks.length === 0) {
+            alert('그래프를 그릴 애플리케이션을 선택해주세요.');
+            return;
+        }
+
+        const selectedIndices = checks.map(c => parseInt(c.value));
+
+        let displayData = [...currentResults];
+        // Apply current sort state to match table order/indices
+        if (resultSortState.column) {
+            displayData.sort((a, b) => {
+                let valA = a[resultSortState.column];
+                let valB = b[resultSortState.column];
+                if (valA === undefined || valA === null) valA = -Infinity;
+                if (valB === undefined || valB === null) valB = -Infinity;
+                if (typeof valA === 'number' && typeof valB === 'number') {
+                    return resultSortState.direction === 'asc' ? valA - valB : valB - valA;
+                }
+                valA = String(valA).toLowerCase();
+                valB = String(valB).toLowerCase();
+                if (valA < valB) return resultSortState.direction === 'asc' ? -1 : 1;
+                if (valA > valB) return resultSortState.direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+        }
+
+        const selectedData = selectedIndices.map(i => displayData[i]);
+
+        // 2. Prepare Data for Chart
+        // Sort by Start Date
+        selectedData.sort((a, b) => {
+            const dateA = new Date(a['Start Date'] || 0);
+            const dateB = new Date(b['Start Date'] || 0);
+            return dateA - dateB;
+        });
+
+        // X-Axis Labels (yyyy-MM-dd)
+        const labels = selectedData.map(d => {
+            if (d['Start Date']) {
+                return d['Start Date'].split(' ')[0]; // Take yyyy-MM-dd
+            }
+            return d['Application ID'] || 'Unknown';
+        });
+
+        const nonNumeric = ['Start Date', 'Application ID', 'Application Name', 'Max Shuffle Read Stage ID', 'Max Shuffle Write Stage ID', 'Max Spill Stage ID', 'Max Shuffle Read Job ID', 'Max Shuffle Write Job ID'];
+        const metricKeys = Object.keys(selectedData[0]).filter(k => !nonNumeric.includes(k) && typeof selectedData[0][k] === 'number');
+
+        const datasets = metricKeys.map((key, idx) => {
+            const dataPoints = selectedData.map(d => {
+                let val = d[key];
+                return val;
+            });
+
+            const colors = ['#007bff', '#28a745', '#dc3545', '#ffc107', '#17a2b8', '#6610f2', '#e83e8c', '#fd7e14', '#20c997'];
+            const color = colors[idx % colors.length];
+
+            // Default Visibility: Only 'Duration' is shown
+            const isDuration = key.toLowerCase().includes('duration');
+
+            return {
+                label: key,
+                data: dataPoints,
+                borderColor: color,
+                backgroundColor: color,
+                fill: false,
+                tension: 0.1,
+                hidden: !isDuration
+            };
+        });
+
+        // 3. Render Chart
+        if (summaryChart) {
+            summaryChart.destroy();
+        }
+
+        summaryChartContainer.classList.remove('hidden');
+
+        const ctx = document.getElementById('summaryChart').getContext('2d');
+        summaryChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: datasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    x: {
+                        display: true,
+                        title: {
+                            display: true,
+                            text: 'Start Date'
+                        }
+                    },
+                    y: {
+                        display: true,
+                        title: {
+                            display: true,
+                            text: 'Value'
+                        },
+                        beginAtZero: true
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: {
+                            usePointStyle: true,
+                            boxWidth: 8
+                        },
+                        onClick: (e, legendItem, legend) => {
+                            Chart.defaults.plugins.legend.onClick.call(this, e, legendItem, legend);
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function (context) {
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.parsed.y !== null) {
+                                    label += context.parsed.y.toLocaleString();
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        summaryChartContainer.scrollIntoView({ behavior: 'smooth' });
     }
 
     // Drag and Drop Handlers
