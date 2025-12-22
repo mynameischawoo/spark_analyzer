@@ -22,6 +22,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const panelDetail = document.getElementById('detail-result-view');
     const loadingOverlay = document.getElementById('loading-overlay');
 
+    // Empty State Elements
+    const emptyStateContainer = document.getElementById('empty-state-container');
+    const logListPanel = document.getElementById('log-list-panel');
+
     // ...
 
     // Event Listeners
@@ -44,7 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Check if multiple *apps* selected? Hard to know without app grouping logic on frontend
         // Just let backend handle or warn user
 
-        showLoading(true);
+        showLoading(true, "Loading Stage Details...");
         try {
             const res = await fetch('/api/analyze/detail', {
                 method: 'POST',
@@ -314,18 +318,21 @@ document.addEventListener('DOMContentLoaded', () => {
         panelList.classList.add('hidden');
         panelResult.classList.add('hidden');
         panelDetail.classList.remove('hidden');
+        document.querySelector('main').classList.add('wide-layout');
     }
 
     function showResult() {
         panelList.classList.add('hidden');
         panelDetail.classList.add('hidden');
         panelResult.classList.remove('hidden');
+        document.querySelector('main').classList.add('wide-layout');
     }
 
     function showList() {
         panelList.classList.remove('hidden');
         panelResult.classList.add('hidden');
         panelDetail.classList.add('hidden');
+        document.querySelector('main').classList.remove('wide-layout');
     }
     const selectAllCb = document.getElementById('select-all');
     const logoBtn = document.getElementById('logo-btn');
@@ -333,7 +340,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const sortHeaders = document.querySelectorAll('.sortable');
 
     // New Buttons
-    const btnUpload = document.getElementById('btn-upload-log');
+    // const btnUpload = document.getElementById('btn-upload-log'); // Changed to class
+    const btnUploadTriggers = document.querySelectorAll('.btn-trigger-upload');
     const btnDelete = document.getElementById('btn-delete-log');
     const uploadInput = document.getElementById('log-upload-input');
 
@@ -363,7 +371,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Init
     fetchConfig();
-    fetchDefinitions();
+    const definitionsPromise = fetchDefinitions(); // Store promise
     fetchLogs();
 
     async function fetchConfig() {
@@ -382,11 +390,35 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    async function fetchRecentResults() {
+        try {
+            // Ensure definitions are loaded first
+            await definitionsPromise;
+
+            const res = await fetch('/api/results/recent');
+            if (res.ok) {
+                const data = await res.json();
+                currentResults = data; // Store the raw data
+                renderResults(currentResults);
+                showResult();
+            } else {
+                alert('최근 분석 결과를 불러오지 못했습니다.');
+            }
+        } catch (e) {
+            console.error("Failed to load recent results", e);
+            alert('최근 분석 결과를 불러오는 중 오류가 발생했습니다.');
+        }
+    }
+
     async function fetchDefinitions() {
         try {
             const res = await fetch('/api/definitions');
             if (res.ok) {
                 metricDefinitions = await res.json();
+                // FIX: Re-render if we already have results to ensure tooltips appear
+                if (currentResults.length > 0) {
+                    renderResults(currentResults);
+                }
             }
         } catch (e) {
             console.error("Failed to load definitions", e);
@@ -466,25 +498,19 @@ document.addEventListener('DOMContentLoaded', () => {
         link.click();
         document.body.removeChild(link);
     }
-    logoBtn.addEventListener('click', showList);
+    // logoBtn.addEventListener('click', showList); // Removed: handled by <a> tag in HTML
 
     // Upload & Delete Listeners
-    btnUpload.addEventListener('click', () => uploadInput.click());
+    // btnUpload.addEventListener('click', () => uploadInput.click());
+    btnUploadTriggers.forEach(btn => {
+        btn.addEventListener('click', () => uploadInput.click());
+    });
     uploadInput.addEventListener('change', handleUpload);
     btnDelete.addEventListener('click', handleDelete);
 
     selectAllCb.addEventListener('change', (e) => {
         const checked = e.target.checked;
         document.querySelectorAll('.file-checkbox').forEach(cb => cb.checked = checked);
-    });
-
-    unitBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            unitBtns.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            currentUnit = btn.dataset.unit;
-            renderResults(currentResults);
-        });
     });
 
     // Sort Event Listeners
@@ -501,6 +527,23 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             updateSortIcons();
             renderLogList(logFiles);
+        });
+    });
+
+    // Re-render chart if unit changes
+    unitBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            unitBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentUnit = btn.dataset.unit;
+
+            // Re-render table
+            renderResults(currentResults);
+
+            // Re-render chart if visible
+            if (summaryChart && !summaryChartContainer.classList.contains('hidden')) {
+                handleCreateGraph();
+            }
         });
     });
 
@@ -562,7 +605,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderLogList(files) {
-        listTableBody.innerHTML = '';
+        const grid = document.getElementById('log-list-grid');
+        grid.innerHTML = '';
 
         // Sorting Logic
         if (files) {
@@ -570,10 +614,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 let valA = a[sortState.column] || '';
                 let valB = b[sortState.column] || '';
 
-                // Handle Loading... text for appName creates bad sort
-                // We'll treat missing appname as empty string or keep it as matches
                 if (sortState.column === 'appName') {
-                    // If it's undefined/null, treat as empty
                     if (!valA) valA = '';
                     if (!valB) valB = '';
                 }
@@ -584,17 +625,50 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        files.forEach(file => {
-            const tr = document.createElement('tr');
-            const appName = file.appName || '<span style="color:#aaa;">Loading...</span>';
+        // Empty State Logic
+        if (!files || files.length === 0) {
+            emptyStateContainer.classList.remove('hidden');
+            logListPanel.classList.add('hidden');
+            return;
+        } else {
+            emptyStateContainer.classList.add('hidden');
+            logListPanel.classList.remove('hidden');
+        }
 
-            tr.innerHTML = `
-                <td><input type="checkbox" class="file-checkbox" value="${file.filename}"></td>
-                <td>${file.filename}</td>
-                <td>${appName}</td>
-                <td>${file.date}</td>
+        files.forEach(file => {
+            const card = document.createElement('div');
+            card.className = 'card log-item-card';
+
+            const appName = file.appName || 'Unknown App';
+            const dateStr = file.date || 'Unknown Date';
+
+            // Generate a random gradient or color based on app name hash for visual variety? 
+            // For now, stick to the design.
+
+            card.innerHTML = `
+                <input type="checkbox" class="file-checkbox log-item-checkbox" value="${file.filename}">
+                <div class="card-header">
+                    <span class="card-tag">Application Log</span>
+                    <h3 class="card-title" style="font-size:1.2rem;">${appName}</h3>
+                </div>
+                <div class="card-desc">
+                    <div style="font-family:monospace; font-size:0.85rem; color:#8b949e; margin-bottom:8px;">${file.filename}</div>
+                    <div style="font-size:0.9rem;">${dateStr}</div>
+                </div>
+                <div class="card-meta">
+                     <span style="color:#58a6ff;">Ready to analyze</span>
+                </div>
             `;
-            listTableBody.appendChild(tr);
+
+            // Make the whole card clickable to toggle checkbox (optional, but nice)
+            card.addEventListener('click', (e) => {
+                if (e.target.type !== 'checkbox') {
+                    const cb = card.querySelector('.file-checkbox');
+                    cb.checked = !cb.checked;
+                }
+            });
+
+            grid.appendChild(card);
         });
     }
 
@@ -614,7 +688,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        showLoading(true);
+        showLoading(true, "Analyzing Log Applications...");
         try {
             const res = await fetch('/api/analyze', {
                 method: 'POST',
@@ -627,7 +701,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error(err.detail || 'Analysis failed');
             }
 
-            // Analysis success, fetch results
+            // Analysis success, wait for definitions then fetch results
+            await definitionsPromise;
             await fetchRecentResults();
 
         } catch (err) {
@@ -645,7 +720,7 @@ document.addEventListener('DOMContentLoaded', () => {
             formData.append('files', file);
         });
 
-        showLoading(true);
+        showLoading(true, "Uploading Files...");
         try {
             const res = await fetch('/api/upload', {
                 method: 'POST',
@@ -667,7 +742,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function handleDelete() {
+    async function handleDelete(e) {
+        if (e) e.preventDefault();
         const selected = Array.from(document.querySelectorAll('.file-checkbox:checked')).map(cb => cb.value);
         if (selected.length === 0) {
             alert('삭제할 로그를 선택하세요.');
@@ -676,7 +752,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!confirm(`선택한 ${selected.length}개의 파일을 삭제하시겠습니까?`)) return;
 
-        showLoading(true);
+        showLoading(true, "Deleting Selected Logs...");
         try {
             const res = await fetch('/api/logs', {
                 method: 'DELETE',
@@ -705,7 +781,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function fetchRecentResults() {
-        showLoading(true);
+        showLoading(true, "Fetching Results...");
         try {
             const res = await fetch('/api/results/recent');
             if (res.status === 404) {
@@ -739,14 +815,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Show 6 decimal places as requested
         if (num === 0) return "0";
-
-        // If it's effectively an integer (e.g. 10 GB exactly), we could strip zeros,
-        // but user requested "소숫점 6자리까지 표기". Usually implies fixed or max.
-        // Let's use toFixed(6) but maybe strip trailing zeros if it's cleaner?
-        // "6자리까지 표기되록" -> usually means "up to 6" or "fixed 6".
-        // Let's do up to 6 significant decimals to look cleaner,
-        // e.g. 10.5 not 10.500000.
-        // But for consistency let's stick to parseFloat(val.toFixed(6)) which strips trailing zeros.
 
         return parseFloat(val.toFixed(6));
     }
@@ -819,8 +887,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Tooltip Check
             let innerContent = text;
-            if (metricDefinitions[key]) {
-                innerContent = `<span class="tooltip-trigger">${text}<span class="tooltip-content">${metricDefinitions[key]}</span></span>`;
+            // Try strict match, then trimmed match
+            // Remove any potential invisible characters from key for lookup
+            const cleanKey = key.trim();
+            let def = metricDefinitions[cleanKey] || metricDefinitions[key];
+
+            // Debug check for specific keys if missing
+            if (!def && (cleanKey === 'Application ID' || cleanKey === 'Start Date')) {
+                console.warn(`Missing definition for key: "${key}" (clean: "${cleanKey}")`);
+                console.log('Available keys:', Object.keys(metricDefinitions));
+            }
+
+            if (def) {
+                innerContent = `<span class="tooltip-trigger" data-tooltip="${def}">${text}</span>`;
             }
 
             th.innerHTML = `${innerContent} <span class="sort-icon"></span>`;
@@ -951,19 +1030,31 @@ document.addEventListener('DOMContentLoaded', () => {
         const metricKeys = Object.keys(selectedData[0]).filter(k => !nonNumeric.includes(k) && typeof selectedData[0][k] === 'number');
 
         const datasets = metricKeys.map((key, idx) => {
+            // Colors
+            const hue = (idx * 137.508) % 360; // golden angle approx
+            const color = `hsl(${hue}, 70%, 50%)`;
+
+            const isDuration = key.toLowerCase().includes('duration') || key.includes('(Sec)');
+            const isBytes = BYTE_COLUMNS.includes(key);
+
             const dataPoints = selectedData.map(d => {
                 let val = d[key];
+                if (val === null || val === undefined) return null;
+
+                if (isBytes) {
+                    // Return number for chart
+                    return formatBytes(val, currentUnit);
+                }
                 return val;
             });
 
-            const colors = ['#007bff', '#28a745', '#dc3545', '#ffc107', '#17a2b8', '#6610f2', '#e83e8c', '#fd7e14', '#20c997'];
-            const color = colors[idx % colors.length];
-
-            // Default Visibility: Only 'Duration' is shown
-            const isDuration = key.toLowerCase().includes('duration');
+            let label = key;
+            if (isBytes && currentUnit !== 'B') {
+                label += ` (${currentUnit})`;
+            }
 
             return {
-                label: key,
+                label: label,
                 data: dataPoints,
                 borderColor: color,
                 backgroundColor: color,
@@ -1093,9 +1184,14 @@ document.addEventListener('DOMContentLoaded', () => {
         draggedColumn = null;
     }
 
-    function showLoading(show) {
-        if (show) loadingOverlay.classList.remove('hidden');
-        else loadingOverlay.classList.add('hidden');
+    function showLoading(show, message = "Analyzing...") {
+        const msgEl = document.getElementById('loading-message');
+        if (show) {
+            if (msgEl) msgEl.textContent = message;
+            loadingOverlay.classList.remove('hidden');
+        } else {
+            loadingOverlay.classList.add('hidden');
+        }
     }
 
 

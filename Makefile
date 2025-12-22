@@ -18,16 +18,19 @@ help:
 install:
 	$(PIP) install -r requirements.txt
 
+# Default Spark History Server URL
+SHS_URL ?= http://localhost:18080
+
 run:
 	@echo "Starting server in foreground on port $(PORT)..."
 	open http://127.0.0.1:$(PORT)
-	$(PYTHON) $(APP_FILE)
+	export SHS_URL="$(SHS_URL)"; $(PYTHON) $(APP_FILE)
 
 start:
 	@if [ -f $(PID_FILE) ]; then \
 		echo "Server is already running with PID $$(cat $(PID_FILE))"; \
 	else \
-		nohup $(PYTHON) $(APP_FILE) > $(LOG_FILE) 2>&1 & echo $$! > $(PID_FILE); \
+		nohup env SHS_URL="$(SHS_URL)" $(PYTHON) $(APP_FILE) > $(LOG_FILE) 2>&1 & echo $$! > $(PID_FILE); \
 		echo "Server started with PID $$(cat $(PID_FILE))"; \
 		echo "Logs: $(LOG_FILE)"; \
 	fi

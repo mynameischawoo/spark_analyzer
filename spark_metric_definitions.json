@@ -1,5 +1,6 @@
 {
     "Application ID": "애플리케이션의 고유 식별자",
+    "Start Date": "애플리케이션 시작 시간",
     "Application Name": "실행된 애플리케이션의 이름",
     "Duration (Sec)": "애플리케이션의 총 실행 시간 (초 단위)",
     "Total Input": "외부 스토리지로부터 읽어들인 총 데이터 크기",

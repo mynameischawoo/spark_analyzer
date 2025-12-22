@@ -5,89 +5,101 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Spark Analyzer</title>
-
-    </body>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        .chart-container {
-            position: relative;
-            height: 300px;
-            width: 100%;
-            margin-bottom: 20px;
-        }
-    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css?v=50">
 </head>
 
 <body>
     <header>
-        <div class="logo" id="logo-btn" style="cursor: pointer;">
-            <span class="icon">⚡</span> Spark Analyzer
-        </div>
+        <a href="/" class="logo">
+            <img src="/static/images/logo.svg" alt="Spark Analyzer Logo" style="height: 48px;">
+        </a>
         <div class="header-actions">
-            <button id="btn-view-recent" class="secondary-btn">최근 분석 결과 보기</button>
+            <!-- Retained functionality buttons, but styled -->
+            <button id="btn-view-recent" class="btn btn-secondary">Previous Results</button>
         </div>
     </header>
 
+    <!-- Hero Section -->
+
+
     <main>
+        <!-- Log Selection View -->
         <section id="log-selection-view">
-            <div class="panel">
-                <div class="panel-header">
-                    <h2>Application Logs</h2>
-                    <div class="header-actions" style="display:flex; gap:10px;">
+            <!-- Empty State -->
+            <div id="empty-state-container" class="hidden">
+                <img src="/static/images/logo.svg" alt="Logo" style="width: 80px; margin-bottom: 20px; opacity: 0.5;">
+                <p>No log files found in event_logs directory.</p>
+                <div style="margin-top: 20px;">
+                    <button class="btn btn-primary btn-trigger-upload">Upload Logs</button>
+                </div>
+            </div>
+
+            <div id="log-list-panel">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="section-title" style="color:#fff; font-size:1.5rem; font-weight:700;">Recent Logs</h2>
+                    <div class="header-actions flex gap-4">
                         <input type="file" id="log-upload-input" multiple style="display:none;">
-                        <button id="btn-upload-log" class="secondary-btn">로그 업로드</button>
-                        <button id="btn-delete-log" class="secondary-btn"
-                            style="color: #d9534f; border-color: #d9534f;">선택 삭제</button>
-                        <button id="btn-start-analysis" class="primary-btn">요약 분석 시작</button>
-                        <button id="btn-start-detail-analysis" class="primary-btn" style="background-color: #28a745;">상세
-                            분석 시작</button>
+                        <button class="btn btn-secondary btn-trigger-upload">Upload</button>
+                        <button id="btn-delete-log" class="btn btn-danger">Delete</button>
+                        <button id="btn-start-analysis" class="btn btn-primary">Analyze Selected</button>
+                        <button id="btn-start-detail-analysis" class="btn btn-secondary"
+                            style="color: #2ea043; border-color: #2ea043;">Detail View</button>
                     </div>
                 </div>
-                <div class="table-container">
-                    <table id="log-table">
-                        <thead>
-                            <tr>
-                                <th width="50"><input type="checkbox" id="select-all"></th>
-                                <th class="sortable" data-sort="filename">애플리케이션 파일 <span class="sort-icon"></span></th>
-                                <th class="sortable" data-sort="appName">애플리케이션 이름 <span class="sort-icon"></span></th>
-                                <th class="sortable" data-sort="date">파일 날짜 <span class="sort-icon"></span></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <!-- Logs will be injected here -->
-                        </tbody>
-                    </table>
+
+                <!-- Replaced Table with Grid -->
+                <!-- We need to keep a hidden input for select-all functionality or implement it differently -->
+                <div class="flex items-center gap-4 mb-4" style="color:var(--text-secondary); font-size:0.9rem;">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="select-all"> Select All
+                    </label>
+                    <!-- Sort controls could go here if needed, but for cards typically strict sorting isn't as primary as tables. 
+                          We will keep them minimal or rely on default date sort. -->
                 </div>
+
+                <div id="log-list-grid" class="section-grid">
+                    <!-- Cards will be injected here via JS -->
+                </div>
+
+                <!-- Hidden Table for backward compatibility if I don't fully refactor JS right away? 
+                     No, I should refactor JS. But removing it might break JS selectors.
+                     I will create a dummy hidden element if needed, but I plan to update JS.
+                -->
+                <table id="log-table" class="hidden">
+                    <tbody></tbody>
+                </table>
             </div>
         </section>
 
+        <!-- Analysis Result View -->
         <section id="analysis-result-view" class="hidden">
-            <!-- ... existing summary view ... -->
             <div class="panel">
                 <div class="panel-header">
-                    <h2>분석 결과</h2>
+                    <h2>Analysis Results</h2>
                     <div class="header-controls">
-                        <button id="btn-create-graph" class="primary-btn"
-                            style="background-color: #17a2b8; margin-right: 10px;">그래프 만들기</button>
+                        <button id="btn-create-graph" class="btn btn-primary">Create Graph</button>
                         <div class="unit-toggles">
-                            <span>단위 변환: </span>
+                            <span>Unit: </span>
                             <button class="unit-btn" data-unit="B">B</button>
                             <button class="unit-btn" data-unit="KB">KB</button>
                             <button class="unit-btn" data-unit="MB">MB</button>
                             <button class="unit-btn active" data-unit="GB">GB</button>
                             <button class="unit-btn" data-unit="TB">TB</button>
                         </div>
-                        <button id="btn-download-csv" class="secondary-btn" style="margin-right: 5px;">CSV 다운로드</button>
-                        <button id="btn-back" class="secondary-btn">목록으로 돌아가기</button>
+                        <button id="btn-download-csv" class="btn btn-secondary">Download CSV</button>
+                        <button id="btn-back" class="btn btn-secondary">Back</button>
                     </div>
                 </div>
 
-                <!-- Summary Chart Container -->
-                <div id="summary-chart-container" class="chart-container hidden" style="height: 400px; padding: 20px;">
+                <div id="summary-chart-container" class="chart-container hidden" style="height: 400px;">
                     <canvas id="summaryChart"></canvas>
                 </div>
 
-                <div class="table-container horizontal-scroll">
+                <div class="table-container horizontal-scroll" style="overflow-x:auto;">
                     <table id="result-table">
                         <thead></thead>
                         <tbody></tbody>
@@ -96,65 +108,71 @@
             </div>
         </section>
 
+        <!-- Detail Result View -->
         <section id="detail-result-view" class="hidden">
             <div class="panel">
                 <div class="panel-header">
                     <div>
-                        <h2>상세 분석 결과 (Stage Details)</h2>
-                        <div id="app-detail-info" class="p-4 bg-gray-100 rounded mb-4 text-sm font-mono"></div>
+                        <h2>Stage Details</h2>
+                        <div id="app-detail-info"
+                            style="font-family:monospace; color:var(--text-secondary); margin-top:8px;"></div>
                     </div>
-                    <div class="header-controls">
-                        <button id="btn-back-from-detail" class="secondary-btn">목록으로 돌아가기</button>
-                    </div>
+                    <button id="btn-back-from-detail" class="btn btn-secondary">Back</button>
                 </div>
 
                 <div class="scroll-y-container">
-                    <div class="chart-container">
+                    <div class="chart-container" style="height: 300px; overflow: hidden;">
                         <canvas id="executorChart"></canvas>
                     </div>
 
-                    <!-- SQL Plan Visualization -->
                     <div id="sql-plan-container" class="sql-plan-container hidden">
                         <h3>SQL Query Plan</h3>
                         <div id="sql-plan-content"></div>
                     </div>
 
-                    <div class="table-container horizontal-scroll">
+                    <div class="table-container horizontal-scroll" style="overflow-x:auto;">
                         <table id="detail-table">
                             <thead>
                                 <tr>
                                     <th>Stage ID</th>
-                                    <th>Stage Name</th>
-                                    <th>Stage Desc</th>
+                                    <th>Name</th>
+                                    <th>Description</th>
                                     <th>Status</th>
-                                    <th>Duration (s)</th>
-                                    <th>Tasks (Parts)</th>
-                                    <th>Avg Input/Task</th>
+                                    <th>Duration</th>
+                                    <th>Tasks</th>
+                                    <th>Avg Input</th>
                                     <th>Input</th>
                                     <th>Output</th>
                                     <th>Shuffle Read</th>
                                     <th>Shuffle Write</th>
-                                    <th>Spill Memory</th>
+                                    <th>Spill</th>
                                 </tr>
                             </thead>
-                            <tbody>
-                                <!-- Stage Details Here -->
-                            </tbody>
+                            <tbody></tbody>
                         </table>
                     </div>
                 </div>
             </div>
         </section>
+
+        <!-- Newsletter/Footer Section -->
+
+
     </main>
 
     <div id="loading-overlay" class="hidden">
-        <div class="spinner"></div>
-        <p>분석 중입니다...</p>
+        <div class="loading-content">
+            <div class="loading-bar-container">
+                <div class="loading-bar-progress"></div>
+            </div>
+            <p id="loading-message">Processing...</p>
+        </div>
     </div>
 
-    <link rel="stylesheet" href="/static/css/style.css?v=40">
+    <div id="global-tooltip" class="hidden"></div>
+
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="/static/js/app.js?v=100"></script>
+    <script src="/static/js/app.js?v=200"></script>
 </body>
 
 </html>
