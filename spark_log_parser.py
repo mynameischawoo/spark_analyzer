@@ -430,6 +430,11 @@ def analyze_single_application(files: List[str]) -> Dict[str, Any]:
     requested_executors = max_executors_conf if dyn_alloc_enabled else executor_instances
     if requested_executors == 0 and max_active_executors > 0:
         requested_executors = max_active_executors # Fallback if conf missing?
+    
+    # Analyze write metrics (import here to avoid circular import)
+    from write_analyzer import analyze_write_metrics
+    write_metrics = analyze_write_metrics(files)
+    total_write_files = sum(w.get("Files Written", 0) for w in write_metrics)
         
     total_cores_capacity = max_active_executors * executor_cores
     total_mem_capacity = max_active_executors * (executor_memory + executor_overhead)
@@ -475,7 +480,8 @@ def analyze_single_application(files: List[str]) -> Dict[str, Any]:
         "Max Spill Stage ID": max_spill_stage_id,
         "Total Tasks": total_tasks,
         "Preempted Tasks": preempted_tasks,
-        "Preempted Executors": preempted_executors
+        "Preempted Executors": preempted_executors,
+        "Write Partitions (Files)": total_write_files
     }
     return metrics
 
