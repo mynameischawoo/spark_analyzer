@@ -116,3 +116,23 @@ make clean
     *   목록에서 **단 하나**의 파일을 체크합니다.
     *   **`상세 분석 시작`** (초록색) 버튼 클릭.
     *   해당 애플리케이션의 Stage별 상세 수행 시간, 데이터 입출력량, 작업 설명을 확인하여 구체적인 튜닝 포인트를 찾습니다.
+
+---
+
+## 스크린샷 및 사용 예시 (Screenshots & Usage)
+
+### 1. 메인 화면 & 로그 파일 관리 (Main List)
+Spark 이벤트 로그 파일을 업로드하고, 분석할 파일을 관리하는 메인 화면입니다.
+![Main List](docs/images/1_main_list.png)
+
+### 2. 최근 분석 결과 (Analysis Results)
+분석 완료된 애플리케이션의 주요 메트릭(Duration, Spill, Input/Output 등)을 테이블 형태로 한눈에 확인할 수 있습니다.
+![Results List](docs/images/2_results_list.png)
+
+### 3. 비교 그래프 (Summary Graph)
+여러 애플리케이션을 체크박스로 선택한 후 `그래프 만들기` 버튼을 클릭하면, 수행 시간 및 리소스 사용량 추이를 시각적으로 비교할 수 있습니다.
+![Summary Graph](docs/images/3_summary_graph.png)
+
+### 4. 상세 분석 플로우 (Detail Flow)
+특정 애플리케이션의 상세 분석(돋보기 아이콘)으로 진입하면, 전체 데이터 흐름(Read &rarr; Write)과 데이터 포맷, 사이즈를 직관적인 카드 형태로 확인할 수 있습니다.
+![Detail Flow](docs/images/4_detail_flow.png)
