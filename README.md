@@ -26,6 +26,8 @@
 - **⚡ 병목 탐지**: **Max Spill** Stage 및 **Data Skew**와 같은 치명적인 문제를 자동으로 강조.
 - **🛠️ 파워 툴**: CSV 내보내기, 단위 변환(B→TB), 동적 정렬 및 메트릭 정의.
 
+
+
 ## 🚀 빠른 시작 (Quick Start)
 
 ### 사전 요구 사항 (Prerequisites)
@@ -106,6 +108,7 @@
    (spark_analyzer_env) $ make run
 
    # 백그라운드 (서비스용)
+   (spark_analyzer_env) $ export SHS_URL="http://spark-history-server:18080"
    (spark_analyzer_env) $ make start
 
    # 사용자 정의 SHS URL 사용 예시
@@ -157,3 +160,102 @@ spark_analyzer/
     ├── css/style.css           # 모던 스타일링
     └── js/app.js               # 앱 로직
 ```
+
+
+## 🎯 리소스 최적화 방법론 요약(Resource Optimization Methodology Summary)
+
+> 상세 문서: https://velog.io/@todaybow/spark-executor-resource-tuning-guide
+
+Spark Analyzer를 활용하여 **Spark History Server**에서 원하는 기간의 Event Log를 다운로드하고, 메트릭 분석 결과를 바탕으로 애플리케이션 성격에 맞는 리소스 최적화를 수행할 수 있습니다.
+
+### 최적화 워크플로우
+
+1. **Event Log 수집**: Spark History Server에서 분석하려는 기간의 Event Log 다운로드
+2. **메트릭 분석**: Spark Analyzer로 업로드하여 Duration, Idle Cores, Peak Memory, Spill, Shuffle 등 주요 메트릭 확인
+3. **전략 선택**: 애플리케이션 특성에 따라 Static 또는 Dynamic Allocation 전략 적용
+4. **리소스 산정**: 분석된 메트릭을 기반으로 최적의 Executor 수, 메모리, 코어 수 계산
+
+### 주요 분석 메트릭
+
+Spark Analyzer는 다음과 같은 핵심 메트릭을 제공하여 리소스 최적화를 지원합니다:
+
+| 메트릭 | 설명 | 최적화 힌트 |
+|:---|:---|:---|
+| **Duration** | 전체 작업 실행 시간 | 병렬성 조정으로 단축 가능 |
+| **Idle Cores (%)** | 유휴 코어 비율 | 높을수록 리소스 낭비 → 코어 수 감소 고려 |
+| **Peak Memory (%)** | 최대 메모리 사용률 | 90% 이상 시 메모리 증설 필요 |
+| **Total/Max Spill (Disk)** | 디스크 스필 발생량 | 메모리 부족 신호 → 메모리 증설 또는 파티션 조정 |
+| **Max Shuffle Read/Write** | 최대 셔플 데이터 크기 | 파티션 수 및 메모리 산정의 기준 |
+
+### 🚀 전략 1: Static Allocation (균등한 데이터 패턴)
+
+**적용 대상**: Input/Output/Shuffle 크기가 일정하고 데이터 분포가 고른 배치 작업
+
+**핵심 설정**:
+- **Partition Size**: 128MB (HDFS I/O 최적화)
+- **Executor Spec**: 4 cores / 6GB memory
+- **Waves**: 3-10회 (병렬 처리 배수)
+- **Safety Factor**: 3-5
+
+**산정 예시** (Max Shuffle 1TB 기준):
+```
+1. Shuffle Partitions = 1TB / 128MB = 8,192개
+2. Total Cores = 8,192 / 10 waves = 820 cores
+3. Executor Instances = 820 / 4 = 205개
+4. Executor Memory = (128MB * 3 * 4 * 2 / 0.6) + 300MB ≈ 6GB
+```
+
+> **💡 Tip**: Spark Analyzer의 **Idle Cores** 지표가 높다면 Executor 수를 줄이고, **Spill** 발생 시 메모리를 증설하세요.
+
+### 🚀 전략 2: Dynamic Allocation (불균등한 데이터 패턴)
+
+**적용 대상**: Join/Explode/Inline으로 중간 셔플 급증, 실행마다 데이터 편차가 큰 작업
+
+**핵심 설정**:
+- **Partition Size**: 64MB (Data Skew 저항성 강화)
+- **Executor Spec**: 4 cores / 10GB memory
+- **Safety Factor**: 3-20 (Skew 고려)
+- **Dynamic Config**: `spark.dynamicAllocation.enabled=true`
+
+**산정 예시** (Max Shuffle 1TB 기준):
+```
+1. Shuffle Partitions = 1TB / 64MB = 16,384개
+2. Total Cores = 16,384 / 10 waves = 1,639 cores
+3. Max Executors = 1,639 / 4 = 410개
+4. Executor Memory = (64MB * 10 * 4 * 2 / 0.6) + 300MB ≈ 10GB
+```
+
+> **⚠️ Warning**: **Max Spill (Disk)** 값이 크거나 특정 Stage에서 Task Duration이 불균등하다면 Dynamic Allocation + 작은 파티션 전략을 적용하세요.
+
+### 실전 활용 가이드
+
+1. **메트릭 수집**: 최소 1주일 이상의 Event Log를 Spark Analyzer로 분석
+2. **패턴 파악**: 
+   - Shuffle 크기가 일정 → Static Allocation
+   - Shuffle 크기 변동 큰 경우 → Dynamic Allocation
+3. **리소스 계산**: 위 공식을 활용하여 Executor 수, 메모리 산정
+4. **검증 및 튜닝**: 적용 후 다시 분석하여 Idle Cores, Spill 개선 확인
+
+### Spark Executor 메모리 구주별 상세 계산표(Spec Sheet)
+**(spark.memory.fraction=0.6, spark.executor.memoryOverheadFactor=0.1 기준)**
+
+| Memory (Heap) | Overhead (Min 384MB) | Unified Total | Execution / Storage (5:5) | 비고 |
+| :--- | :--- | :--- | :--- | :--- |
+| **2g** | 384 MB | 1,049 MB | 524 MB / 524 MB | 소규모 작업용 |
+| **4g** | 410 MB | 2,278 MB | 1,139 MB / 1,139 MB | |
+| **6g** | 614 MB | 3,506 MB | 1,753 MB / 1,753 MB | **Static 권장** |
+| **8g** | 819 MB | 4,735 MB | 2,368 MB / 2,368 MB | |
+| **10g** | 1,024 MB | 5,964 MB | 2,982 MB / 2,982 MB | **Dynamic 권장** |
+| **12g** | 1,229 MB | 7,193 MB | 3,596 MB / 3,596 MB | |
+| **16g** | 1,638 MB | 9,650 MB | 4,825 MB / 4,825 MB | |
+| **20g** | 2,048 MB | 12,108 MB | 6,054 MB / 6,054 MB | |
+| **24g** | 2,458 MB | 14,565 MB | 7,283 MB / 7,283 MB | 대규모 집계용 |
+| **30g** | 3,072 MB | 18,252 MB | 9,126 MB / 9,126 MB | 대규모 집계용 |
+| **36g** | 3,686 MB | 21,938 MB | 10,969 MB / 10,969 MB | 대규모 집계용 |
+
+### 참고 자료
+
+리소스 산정에 대한 상세한 배경 지식과 계산 공식은 다음 문서를 참고하세요:
+- [Spark Executor 리소스 튜닝 가이드(Static vs Dynamic Allocation)](https://velog.io/@todaybow/spark-executor-resource-tuning-guide)
+- [Spark Executor Memory 구조 및 Shuffle Spill 분석](https://velog.io/@todaybow/spark-executor-memory-architectures)
+- Spark 공식 문서: [Monitoring and Instrumentation](https://spark.apache.org/docs/latest/monitoring.html)
