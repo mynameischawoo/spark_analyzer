@@ -279,6 +279,20 @@ async def analyze_detail(request: AnalyzeRequest):
         # input_files contains the real paths (e.g. appstatus_...)
         # spark_log_parser should handle them
         details = spark_log_parser.analyze_stage_details(input_files)
+        
+        import read_analyzer
+        import write_analyzer
+        import importlib
+        importlib.reload(read_analyzer)
+        importlib.reload(write_analyzer)
+        
+        reads = read_analyzer.analyze_read_metrics(input_files)
+        writes = write_analyzer.analyze_write_metrics(input_files)
+        
+        if isinstance(details, dict):
+            details['reads'] = reads
+            details['writes'] = writes
+            
         return details
     except Exception as e:
         import traceback

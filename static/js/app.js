@@ -161,728 +161,153 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- SQL Plan Helpers ---
-
-    // Optimization: Deduplicate Scans AND Consolidate Writes
-    function optimizePlan(root) {
-        if (!root) return null;
-
-        // Helper: Collect metrics deeply from all descendants
-        function getDeepMetrics(startNode, targetMetrics) {
-            const acc = {}; // map name -> [ids]
-
-            function scanDeep(n) {
-                if (!n) return;
-
-                // If this node has metrics, add them
-                if (n.metrics) {
-                    n.metrics.forEach(m => {
-                        if (!m || !m.name) return; // Safety check
-
-                        // Filter? Or just take all?
-                        // We strictly want "written" stuff or generic rows
-                        const mName = m.name.toLowerCase();
-                        // Write semantic metrics
-                        const relevant = mName.includes("files") || mName.includes("bytes") || mName.includes("size") || mName.includes("rows") || mName.includes("partitions");
-
-                        if (relevant) {
-                            if (!acc[m.name]) acc[m.name] = [];
-                            // Avoid duplicates? Accumulator ID is unique.
-                            if (!acc[m.name].includes(m.accumulatorId)) {
-                                acc[m.name].push(m.accumulatorId);
-                            }
-                        }
-                    });
-                }
-
-                if (n.children) n.children.forEach(scanDeep);
-            }
-
-            // Don't scan the node itself again if we are calling this on children
-            if (startNode.children) startNode.children.forEach(scanDeep);
-
-            return acc;
-        }
-
-        // 1. Identify Scans & Writes
-        const scans = [];
-        const writes = [];
-
-        function traverse(node) {
-            if (!node) return;
-            const name = node.nodeName.toLowerCase();
-
-            if (name.includes("scan") && !name.includes("onerowrelation")) {
-                scans.push(node);
-            } else if (name.includes("command") || name.includes("write") || name.includes("insert")) {
-                writes.push(node);
-            }
-
-            if (node.children) {
-                node.children.forEach(traverse);
-            }
-        }
-
-        // Traverse full tree (or what's left of it)
-        traverse(root);
-        // Note: traverse() above is just collecting references.
-        // If we want to safely modify the tree structure, we should do it carefully.
-        // But for METRIC CONSOLIDATION, we can update the objects in place.
-
-        // 2. Consolidate Writes (DEEP MERGE)
-        writes.forEach(writeNode => {
-            // Find all relevant metrics in the subtree
-            const deepMetrics = getDeepMetrics(writeNode);
-
-            // Merge into writeNode._mergedAccums
-            if (!writeNode._mergedAccums) writeNode._mergedAccums = {};
-
-            Object.keys(deepMetrics).forEach(k => {
-                if (!writeNode._mergedAccums[k]) writeNode._mergedAccums[k] = [];
-                deepMetrics[k].forEach(id => {
-                    // Check if already present
-                    if (!writeNode._mergedAccums[k].includes(id)) {
-                        writeNode._mergedAccums[k].push(id);
-                    }
-                });
-            });
-
-            // Also try to capture child strings for parsing (naive, just first child?)
-            if (writeNode.children && writeNode.children.length > 0) {
-                // Concatenate simple strings of direct children just in case
-                writeNode._childString = writeNode.children.map(c => c.simpleString).join(" ");
-            }
-        });
-
-        // 3. Group Scans by Table/Path
-        const uniqueScans = {};
-
-        scans.forEach(scan => {
-            const simple = scan.simpleString || '';
-            let ident = simple;
-            const match = simple.match(/([a-zA-Z0-9_]+\.[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)*)/);
-            if (match) ident = match[0];
-            else {
-                const pathMatch = simple.match(/Location: \[(.*?)\]/);
-                if (pathMatch) ident = pathMatch[1];
-            }
-
-            if (!uniqueScans[ident]) {
-                uniqueScans[ident] = { ...scan, children: [] };
-                uniqueScans[ident]._mergedAccums = {};
-            }
-
-            if (scan.metrics) {
-                scan.metrics.forEach(m => {
-                    if (!m || !m.name) return; // Safety check
-                    if (!uniqueScans[ident]._mergedAccums[m.name]) uniqueScans[ident]._mergedAccums[m.name] = [];
-                    uniqueScans[ident]._mergedAccums[m.name].push(m.accumulatorId);
-                });
-            }
-        });
-
-        // 4. Reconstruct Children (Scans + Writes)
-        // Since strict mode removes intermediates, we return a root that points to the NEW Unique Scans + Original Writes.
-        // But 'root' is likely the Write command itself?
-        // If root is a Write/Command, we keep it as is (it has consolidated metrics).
-        // But we want to replace its children with the unique scans.
-
-        const name = root.nodeName.toLowerCase();
-        if (name.includes("command") || name.includes("write") || name.includes("insert")) {
-            // Root is the Write. It should have the scans as children.
-            const newScanChildren = Object.values(uniqueScans);
-
-            // Do we strictly want to replace ALL children?
-            // Users wants "Read Parquet" nodes.
-            return {
-                ...root,
-                children: newScanChildren,
-                _mergedAccums: root._mergedAccums // Preservation
-            };
-        }
-
-        // If root is not the write (e.g. wrapper), return structure?
-        // Fallback: Just return root with existing structure but deduplicated scans?
-        // Since simplifyPlan skips to Scans/Output, the children array likely has the raw Scans.
-        // We replace them.
-        return {
-            ...root,
-            children: Object.values(uniqueScans)
-        };
-    }
-
-    function simplifyPlan(node) {
-        // ... (Keep existing simple logic)
-        // We rely on simplify to stripe out the middle
-        if (!node) return null;
-
-        let newChildren = [];
-        if (node.children) {
-            node.children.forEach(child => {
-                const simplerChild = simplifyPlan(child);
-                if (simplerChild) newChildren.push(simplerChild);
-            });
-        }
-
-        const name = node.nodeName.toLowerCase();
-        const isOneRow = name.includes("onerowrelation");
-        const isScan = (name.includes("scan") || name.includes("hadoopfsrelation")) && !isOneRow;
-        const isOutput = name.includes("command") || name.includes("write") || name.includes("insert");
-
-        // Keep Write (Output) nodes and Scan nodes.
-        // Intermediate nodes are skipped.
-        const shouldKeep = isScan || isOutput;
-
-        if (!shouldKeep) {
-            if (newChildren.length === 1) return newChildren[0];
-            if (newChildren.length === 0) return null;
-            if (newChildren.length > 1) return { ...node, children: newChildren, nodeName: "Flow" };
-            return newChildren[0];
-        }
-
-        return { ...node, children: newChildren };
-    }
-
-    // --- DataFlint Ported Parsers ---
-
-    function dataFlintSpecialSplit(input) {
-        const result = [];
-        let buffer = "";
-        let bracketCount = 0;
-        let inQuotes = false;
-
-        for (let i = 0; i < input.length; i++) {
-            const char = input[i];
-            if (char === "[") bracketCount++;
-            if (char === "]") bracketCount--;
-            if (char === '"') inQuotes = !inQuotes;
-
-            if (char === "," && bracketCount === 0 && !inQuotes) {
-                result.push(buffer.trim());
-                buffer = "";
-            } else {
-                buffer += char;
-            }
-        }
-        if (buffer) result.push(buffer.trim());
-        return result;
-    }
-
-    function parseDataFlintWrite(input) {
-        // Ported from WriteToHDFSParser.ts
-        let raw = input.replace("Execute InsertIntoHadoopFsRelationCommand", "").trim();
-        if (raw.startsWith("InsertIntoHadoopFsRelationCommand")) {
-            raw = raw.replace("InsertIntoHadoopFsRelationCommand", "").trim();
-        }
-
-        if (raw.startsWith("(") && raw.endsWith(")")) {
-            raw = raw.substring(1, raw.length - 1);
-        }
-
-        const parts = dataFlintSpecialSplit(raw);
-        if (parts.length < 2) return { location: raw };
-
-        let parsed = {
-            location: parts[0],
-            format: "unknown",
-            mode: "unknown",
-            tableName: null,
-            partitionKeys: null
-        };
-
-        if (parts[2] && parts[2].includes("[")) {
-            parsed.partitionKeys = parts[2].slice(1, -1);
-            parsed.format = parts[3];
-            parsed.mode = parts[5];
-        } else {
-            parsed.format = parts[2];
-            parsed.mode = parts[4];
-        }
-
-        if (parts[4] && parts[4].includes("`")) parsed.tableName = parts[4];
-        else if (parts[5] && parts[5].includes("`")) parsed.tableName = parts[5];
-        else if (parts.length > 6 && parts[6] && parts[6].includes("`")) parsed.tableName = parts[6];
-
-        return parsed;
-    }
-
-    function parseDataFlintScan(input, nodeName) {
-        // Ported from ScanFileParser.ts
-        const result = {};
-
-        const formatMatch = /Format: (\w+),/.exec(input);
-        if (formatMatch) result.format = formatMatch[1];
-        if (!result.format && nodeName.includes("Scan")) {
-            const parts = nodeName.split(" ");
-            if (parts.length >= 2) result.format = parts[1];
-        }
-
-        const locMatch = /Location: \w+\(.*\)(?:\[(.*?)\])/.exec(input) || /Location: \[(.*?)\]/.exec(input);
-
-        if (locMatch) {
-            let path = locMatch[1];
-            if (path.includes("...")) {
-                result.location = path.split(",")[0];
-            } else {
-                result.location = path;
-            }
-        }
-
-        const partMatch = /PartitionFilters: \[(.*?)\]/.exec(input);
-        if (partMatch) result.partitionFilters = partMatch[1];
-
-        const pushMatch = /PushedFilters: \[(.*?)\]/.exec(input);
-        if (pushMatch) result.pushedFilters = pushMatch[1];
-
-        const nameParts = nodeName.split(" ");
-        if (nameParts.length >= 3) {
-            result.tableName = nameParts[2];
-        }
-
-        return result;
-    }
-
-    // Helper to sum stage metrics (Global Fallback)
-    function getStageMetrics(stages) {
-        let bytes = 0;
-        let rows = 0;
-        if (stages) {
-            stages.forEach(s => {
-                // Sum ALL output-bearing stages regardless of ID
-                // This is robust for AQE split scenarios where ID filtering fails
-                if ((s["Output"] || 0) > 0 || (s["Output Records"] || 0) > 0) {
-                    bytes += (s["Output"] || 0);
-                    rows += (s["Output Records"] || 0);
-                }
-            });
-        }
-        return { bytes, rows };
-    }
-
-    function renderRecursivePlan(node, accumulators, container, stages, allExecutions) {
-        if (!node) return '';
-
-        if (node.nodeName === "Flow") {
-            let html = `
-                <div class="node-wrapper">
-                     <div class="sql-children" style="margin-top:0; padding-top:10px; border-top: 1px dashed #ddd;">`;
-            if (node.children) {
-                node.children.forEach(child => {
-                    html += renderRecursivePlan(child, accumulators, container, stages, allExecutions);
-                });
-            }
-            html += `   </div>
-                </div>`;
-            return html;
-        }
-
-        const name = node.nodeName.toLowerCase();
-        // Combined string for extraction (include consolidated child string)
-        const simple = (node.simpleString || '') + (node._childString || '');
-
-        let title = node.nodeName;
-        let icon = '📄';
-
-        let details = [];
-        let parsedMeta = {};
-
-        // --- Determine Type and Parse ---
-        if (name.includes("insertinto") || name.includes("command") || name.includes("write")) {
-            title = "Write To Hdfs";
-            icon = '💾';
-            // Use DataFlint Write Parser
-            const writeInfo = parseDataFlintWrite(simple);
-
-            // Map parsed info to details order
-            if (writeInfo.tableName) parsedMeta.table = writeInfo.tableName;
-            if (writeInfo.location) parsedMeta.path = writeInfo.location;
-            if (writeInfo.format && writeInfo.format !== "unknown") parsedMeta.format = writeInfo.format;
-            if (writeInfo.partitionKeys) parsedMeta.partitionBy = writeInfo.partitionKeys;
-
-        } else if (name.includes("scan")) {
-            // Use DataFlint Scan Parser
-            const scanInfo = parseDataFlintScan(simple, node.nodeName);
-
-            if (scanInfo.format) {
-                title = "Read " + scanInfo.format;
-                title = title.replace(/\b\w/g, c => c.toUpperCase()); // proper case
-            } else {
-                title = "Read Data";
-            }
-
-            if (scanInfo.tableName) parsedMeta.table = scanInfo.tableName;
-            if (scanInfo.location) parsedMeta.path = scanInfo.location;
-            if (scanInfo.partitionFilters) parsedMeta.partitionFilters = scanInfo.partitionFilters;
-            if (scanInfo.pushedFilters) parsedMeta.pushedFilters = scanInfo.pushedFilters;
-            if (scanInfo.format) parsedMeta.format = scanInfo.format;
-        }
-
-        // --- Metrics Processing ---
-        let metricsSource = node._mergedAccums ?
-            Object.keys(node._mergedAccums).map(k => ({ name: k, isMerged: true, ids: node._mergedAccums[k] })) :
-            (node.metrics || []);
-
-        const getVal = (mItem) => {
-            if (mItem.isMerged) {
-                let t = 0; mItem.ids.forEach(id => { t += Number(accumulators[id] || 0); }); return t;
-            } else {
-                return Number(accumulators[mItem.accumulatorId] || 0);
-            }
-        };
-
-        let collectedMetrics = {
-            rows: 0,
-            files: 0,
-            bytes: 0,
-            partitions: 0,
-
-            // Explicit separate parsing
-            filesRead: 0,
-            filesWritten: 0,
-            bytesRead: 0,
-            bytesWritten: 0,
-            rowsRead: 0,
-            rowsWritten: 0,
-            partitionsWritten: 0
-        };
-
-        // Populate collectedMetrics
-        metricsSource.forEach(m => {
-            if (!m) return;
-            const val = getVal(m);
-            const mName = m.name ? m.name.toLowerCase() : "";
-            if (!mName) return;
-
-            // Generic fallback
-            if (mName.includes("files")) collectedMetrics.files = val;
-            if (mName.includes("bytes") || mName.includes("size")) collectedMetrics.bytes = val;
-            if (mName.includes("rows")) collectedMetrics.rows = val;
-
-            // Specific parsing
-            if (mName.includes("files") && mName.includes("read")) collectedMetrics.filesRead = val;
-            if (mName.includes("files") && (mName.includes("written") || mName.includes("output"))) collectedMetrics.filesWritten = val;
-
-            if (mName.includes("bytes") && mName.includes("read")) collectedMetrics.bytesRead = val;
-            if (mName.includes("bytes") && (mName.includes("written") || mName.includes("output"))) collectedMetrics.bytesWritten = val;
-
-            if (mName.includes("rows") && (mName.includes("written") || mName.includes("output"))) collectedMetrics.rowsWritten = val;
-            // Rows Read often just "rows" in Scan, but "number of output rows" can be ambiguous. 
-            // Usually "number of output rows" in Scan == Rows Read.
-            if (mName.includes("rows") && !mName.includes("written")) collectedMetrics.rowsRead = val;
-
-            if (mName.includes("partitions")) collectedMetrics.partitionsWritten = val;
-        });
-
-        // --- Construct Details Array (Strict Order per Type) ---
-
-        // --- DataFlint Logic Port: Metric Processing ---
-        function humanFileSize(bytes) {
-            if (!bytes || bytes === 0) return "0 B";
-            const k = 1024;
-            const dm = 2;
-            const sizes = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-        }
-
-        // Ported from MetricProcessors.tsx + Enhanced with Cross-Execution Scavenging
-        function processOutputNodeMetrics(node, accumulators, stages, allExecutions) {
-            const metrics = [];
-
-            // 1. Local Node Metrics
-            let sources = node._mergedAccums ?
-                Object.keys(node._mergedAccums).map(k => ({ name: k, isMerged: true, ids: node._mergedAccums[k] })) :
-                (node.metrics || []);
-
-            const getVal = (mItem) => {
-                if (mItem.isMerged) {
-                    let t = 0; mItem.ids.forEach(id => { t += Number(accumulators[id] || 0); }); return t;
-                } else {
-                    return Number(accumulators[mItem.accumulatorId] || 0);
-                }
-            };
-
-            let bytesWritten = 0;
-            let rows = 0;
-
-            // Helper for loose matching
-            const isBytes = (n) => {
-                const s = n.toLowerCase().replace(/\s/g, '');
-                return s.includes("byteswritten") || s.includes("outputbytes") || s === "writtenoutput" || s === "bytes";
-            };
-            const isRows = (n) => {
-                const s = n.toLowerCase().replace(/\s/g, '');
-                return s.includes("rowswritten") || s.includes("outputrows") || s === "numberofoutputrows" || s === "rows";
-            };
-
-            sources.forEach(m => {
-                if (!m) return; // Safety check
-                const val = getVal(m);
-                const name = m.name;
-                if (!name) return; // Safety check
-
-                if (isBytes(name)) bytesWritten = val;
-                if (isRows(name)) rows = val;
-            });
-
-            // 2. Cross-Execution Scavenging (The "Seeker" Logic)
-            if (allExecutions && allExecutions.length > 0) {
-                let scavengedBytes = 0;
-                let scavengedRows = 0;
-
-                allExecutions.forEach(exec => {
-                    // Find ANY node that has the metrics we look for.
-                    function scanAllNodes(n) {
-                        if (!n) return;
-
-                        if (n.metrics) {
-                            n.metrics.forEach(m => {
-                                if (!m || !m.name) return; // Safety check
-                                const mName = m.name;
-                                const mVal = Number(accumulators[m.accumulatorId] || 0);
-
-                                if (isBytes(mName)) scavengedBytes = Math.max(scavengedBytes, mVal);
-                                if (isRows(mName)) scavengedRows = Math.max(scavengedRows, mVal);
-                            });
-                        }
-                        if (n.children) n.children.forEach(scanAllNodes);
-                    }
-                    scanAllNodes(exec.plan);
-                });
-
-                bytesWritten = Math.max(bytesWritten, scavengedBytes);
-                rows = Math.max(rows, scavengedRows);
-            }
-
-            // 3. Stage Global Fallback (The "Safety Net")
-            // Finally, check against the raw Stage Output metrics (Task Metrics)
-            const stageM = getStageMetrics(stages);
-
-            rows = Math.max(rows, stageM.rows);
-            bytesWritten = Math.max(bytesWritten, stageM.bytes);
-
-
-            // Construct Final Metric List
-            if (rows > 0) metrics.push({ name: "Rows", value: rows.toLocaleString() });
-            if (bytesWritten > 0) metrics.push({ name: "Bytes Written", value: humanFileSize(bytesWritten) });
-
-            return metrics;
-        }
-
-        if (name.includes("insertinto") || name.includes("command") || name.includes("write")) {
-            // Write To Hdfs Order: Rows, Bytes Written, Partition By, File Path, Format
-
-            // 1. Metrics First
-            const outputMetrics = processOutputNodeMetrics(node, accumulators, stages, allExecutions);
-            outputMetrics.forEach(m => {
-                if (m && m.name) details.push({ label: m.name, value: m.value });
-            });
-
-            // 2. Metadata Next
-            if (parsedMeta.partitionBy) {
-                // Remove #ID suffixes (e.g. platform#34 -> platform)
-                const cleanPartition = parsedMeta.partitionBy.replace(/#\d+/g, '');
-                details.push({ label: "Partition By", value: cleanPartition });
-            }
-            if (parsedMeta.path) {
-                let p = parsedMeta.path;
-                if (p.length > 35) p = p.substring(0, 12) + "..." + p.substring(p.length - 18);
-                details.push({ label: "File Path", value: p });
-            }
-            if (parsedMeta.format) details.push({ label: "Format", value: parsedMeta.format });
-
-        } else if (name.includes("scan")) {
-            // Read Parquet Order: File Read, Bytes Read, Rows, Average File Size, File Path, Partition Filters, Table
-
-            let finalFilesRead = collectedMetrics.filesRead > 0 ? collectedMetrics.filesRead : collectedMetrics.files;
-            let finalBytesRead = collectedMetrics.bytesRead > 0 ? collectedMetrics.bytesRead : collectedMetrics.bytes;
-            let finalRowsRead = collectedMetrics.rowsRead > 0 ? collectedMetrics.rowsRead : collectedMetrics.rows;
-
-            let avgSize = 0;
-            if (finalFilesRead > 0 && finalBytesRead > 0) {
-                avgSize = finalBytesRead / finalFilesRead;
-            }
-
-            if (finalFilesRead > 0) details.push({ label: "Files Read", value: finalFilesRead.toLocaleString() });
-            if (finalBytesRead > 0) details.push({ label: "Bytes Read", value: formatBytes(finalBytesRead) });
-            if (finalRowsRead > 0) details.push({ label: "Rows", value: finalRowsRead.toLocaleString() });
-            if (avgSize > 0) details.push({ label: "Average File Size", value: formatBytes(avgSize) });
-
-            if (parsedMeta.path) {
-                let p = parsedMeta.path;
-                if (p.length > 35) p = p.substring(0, 12) + "..." + p.substring(p.length - 18);
-                details.push({ label: "File Path", value: p });
-            }
-            // Ensure partition filters show "Full Scan" if empty or missing, but ONLY if explicit partition filters field was expected
-            // DataFlint shows "Partition Filters: Full Scan" when empty.
-            // In my port, parseDataFlintScan returns empty string or "Full Scan" logic?
-            // In my port, parseDataFlintScan returns `partitionFilters: "Full Scan"` if empty regex.
-            // So if parsedMeta.partitionFilters is set, use it.
-            if (parsedMeta.partitionFilters) {
-                details.push({ label: "Partition Filters", value: parsedMeta.partitionFilters });
-            } else {
-                // If not found, check if it had a chance to be found
-                // Actually DataFlint Scan parser returns empty string or "Full Scan" logic?
-                // In my port, parseDataFlintScan returns `partitionFilters: "Full Scan"` if empty regex.
-                // So if parsedMeta.partitionFilters is set, use it.
-            }
-
-            if (parsedMeta.table) details.push({ label: "Table", value: parsedMeta.table });
-
-            if (parsedMeta.pushedFilters) details.push({ label: "Push Down Filters", value: parsedMeta.pushedFilters });
-        } else {
-            // Fallback
-            Object.keys(collectedMetrics).forEach(k => {
-                // Skip internal helper keys
-                if (['filesRead', 'filesWritten', 'bytesRead', 'bytesWritten', 'rowsRead', 'rowsWritten'].includes(k)) return;
-                if (collectedMetrics[k] > 0) details.push({ label: k, value: collectedMetrics[k].toLocaleString() });
-            });
-        }
-
-        let rowsHtml = '';
-        details.forEach(d => {
-            rowsHtml += `
-                <div class="rich-row">
-                    <span class="rich-label">${d.label}:</span>
-                    <span class="rich-value">${d.value}</span>
-                </div>`;
-        });
-
-        const footerHtml = `<div class="rich-footer"><span style="color:#22c55e; font-size:1.2em;">✔</span></div>`;
-
-        let html = `
-            <div class="node-wrapper">
-                <div class="sql-node-rich">
-                    <div class="rich-header">${title}<span class="rich-header-icon">${icon}</span></div>
-                    <div class="rich-body">${rowsHtml}</div>
-                    ${footerHtml}
-                </div>`;
-
-        if (node.children && node.children.length > 0) {
-            html += '<div class="sql-children">';
-            node.children.forEach(child => html += renderRecursivePlan(child, accumulators, container, stages, allExecutions));
-            html += '</div>';
-        }
-        html += '</div>';
-        return html;
-    }
-
     function renderDetailTable(data) {
-        console.log("Detail Analysis Data:", data); // Debug: Check if sqlExecutions exists
-        // Render Chart
+        console.log("Detail Analysis Data:", data);
+
+        // 1. Render Executor Chart
         if (data.executorTimeSeries) {
             renderExecutorChart(data.executorTimeSeries);
         }
 
-        // Render SQL Plan
+        // 2. Render Read/Write Flow
         const sqlContainer = document.getElementById('sql-plan-container');
         const sqlContent = document.getElementById('sql-plan-content');
 
-        if (data.sqlExecutions && Object.keys(data.sqlExecutions).length > 0) {
-            sqlContainer.classList.remove('hidden');
+        sqlContainer.classList.remove('hidden');
+        sqlContent.innerHTML = ''; // Clear previous
 
-            // Find the "Best" execution to show (Priority: Match User Criteria -> Then Max nodes)
-            const execs = Object.values(data.sqlExecutions);
+        // Container for Flow
+        const flowContainer = document.createElement('div');
+        flowContainer.className = 'read-write-flow-container';
+        flowContainer.style.display = 'flex';
+        flowContainer.style.alignItems = 'flex-start'; // Align top
+        flowContainer.style.justifyContent = 'space-between';
+        flowContainer.style.padding = '20px';
+        flowContainer.style.gap = '50px';
 
-            let bestExec = null;
-            let targetExecId = null;
+        // Left: Reads
+        const readCol = document.createElement('div');
+        readCol.className = 'flow-column read-column';
+        readCol.style.flex = '1';
+        readCol.innerHTML = '<h3>Read</h3>';
 
-            // 1. Priority: Find Stage matching "parquet at NativeMethodAccessorImpl"
-            // The user specifically asked to filter by this Stage Name/Callsite.
-            if (data.stages) {
-                const targetStage = data.stages.find(s => {
-                    const name = (s["Stage Name"] || "").toLowerCase();
-                    const desc = (s["Description"] || "").toLowerCase();
-                    const key = "nativemethodaccessorimpl.java:0"; // specific keyword
-                    return name.includes(key) || desc.includes(key);
-                });
+        if (data.reads && data.reads.length > 0) {
+            data.reads.forEach(read => {
+                const card = document.createElement('div');
+                card.className = 'flow-card';
+                card.style.border = '1px solid #28a745';
+                card.style.borderRadius = '8px';
+                card.style.padding = '15px';
+                card.style.marginBottom = '15px';
+                card.style.backgroundColor = '#f0fff4';
 
-                if (targetStage && targetStage["Execution ID"]) {
-                    targetExecId = targetStage["Execution ID"];
-                    console.log("Found Target Stage:", targetStage["Stage Name"], "ExecID:", targetExecId);
-                }
-            }
-
-            if (targetExecId && data.sqlExecutions[targetExecId]) {
-                bestExec = data.sqlExecutions[targetExecId];
-            } else {
-                // 2. Fallback: Max Nodes
-                let maxNodes = -1;
-
-                function countNodes(node) {
-                    if (!node) return 0;
-                    let c = 1;
-                    if (node.children) {
-                        node.children.forEach(child => c += countNodes(child));
-                    }
-                    return c;
+                let html = `<strong>Use: ${read['Format'] || 'Unknown'}</strong><br>`;
+                html += `<div style="font-size:0.9em; color:#555; word-break:break-all;">${read['File Path']}</div>`;
+                html += `<hr style="margin:8px 0; border:0; border-top:1px dashed #ccc;">`;
+                html += `<div>Rows: ${read['Rows'] ? read['Rows'].toLocaleString() : '0'}</div>`;
+                html += `<div>Bytes: ${formatBytes(read['Bytes Read'])}</div>`;
+                if (read['Partition Filters'] && read['Partition Filters'] !== 'None') {
+                    html += `<div style="font-size:0.8em; color:#d63384; margin-top:5px;">Filter: ${read['Partition Filters']}</div>`;
                 }
 
-                execs.forEach(exec => {
-                    const c = countNodes(exec.plan);
-                    if (c > maxNodes) {
-                        maxNodes = c;
-                        bestExec = exec;
-                    }
-                });
-            }
-
-            if (bestExec) {
-                // 1. First cleanup noise
-                const simplifiedPlan = simplifyPlan(bestExec.plan);
-                // 2. Then flattened and deduplicate Scans
-                const finalPlan = optimizePlan(simplifiedPlan);
-
-                // Pass Object.values(data.sqlExecutions) to enable scavenging
-                sqlContent.innerHTML = renderRecursivePlan(finalPlan, data.accumulators || {}, null, data.stages, Object.values(data.sqlExecutions));
-            }
+                card.innerHTML = html;
+                readCol.appendChild(card);
+            });
         } else {
-            sqlContainer.classList.add('hidden');
+            readCol.innerHTML += '<div class="no-data">No Reads Detected</div>';
         }
 
-        const { stages } = data;
+        // Center: Arrow
+        const arrowCol = document.createElement('div');
+        arrowCol.className = 'flow-arrow';
+        arrowCol.style.display = 'flex';
+        arrowCol.style.alignItems = 'center';
+        arrowCol.style.justifyContent = 'center';
+        arrowCol.style.alignSelf = 'stretch'; // Match height
+        arrowCol.innerHTML = '<div style="font-size: 50px; color: #555; margin-top: 50px;">&rarr;</div>';
+
+        // Right: Writes
+        const writeCol = document.createElement('div');
+        writeCol.className = 'flow-column write-column';
+        writeCol.style.flex = '1';
+        writeCol.innerHTML = '<h3>Write</h3>';
+
+        if (data.writes && data.writes.length > 0) {
+            data.writes.forEach(write => {
+                const card = document.createElement('div');
+                card.className = 'flow-card';
+                card.style.border = '1px solid #007bff';
+                card.style.borderRadius = '8px';
+                card.style.padding = '15px';
+                card.style.marginBottom = '15px';
+                card.style.backgroundColor = '#f0f8ff';
+
+                let html = `<strong>Format: ${write['Format'] || 'Unknown'}</strong>`;
+                if (write['Mode']) html += ` <span style="font-size:0.8em; background:#eee; padding:2px 4px; borderRadius:4px;">${write['Mode']}</span>`;
+                html += `<div style="font-size:0.9em; color:#555; word-break:break-all;">${write['File Path']}</div>`;
+                html += `<hr style="margin:8px 0; border:0; border-top:1px dashed #ccc;">`;
+                html += `<div>Rows: ${write['Rows'] ? write['Rows'].toLocaleString() : '0'}</div>`;
+                html += `<div>Bytes: ${formatBytes(write['Bytes Written'])}</div>`;
+                html += `<div>Files: ${write['Files Written'] || 0}</div>`;
+                html += `<div>Avg Size: ${formatBytes(write['Average File Size'])}</div>`;
+
+                card.innerHTML = html;
+                writeCol.appendChild(card);
+            });
+        } else {
+            writeCol.innerHTML += '<div class="no-data">No Writes Detected</div>';
+        }
+
+        flowContainer.appendChild(readCol);
+        flowContainer.appendChild(arrowCol);
+        flowContainer.appendChild(writeCol);
+
+        sqlContent.appendChild(flowContainer);
+
+        // Render Side Header Info
         const appName = data.appInfo ? data.appInfo.name : (data.appName || "Unknown");
         const appId = data.appInfo ? data.appInfo.id : (data.appId || "Unknown");
-
-        // Render Header Info
         const infoDiv = document.getElementById('app-detail-info');
         infoDiv.innerHTML = `<strong>App Name:</strong> ${appName} | <strong>App ID:</strong> ${appId}`;
 
+        // Render Stage Table
         const tbody = document.querySelector('#detail-table tbody');
         tbody.innerHTML = '';
 
-        stages.forEach(stage => {
-            const tr = document.createElement('tr');
+        if (data.stages) {
+            data.stages.forEach(stage => {
+                const tr = document.createElement('tr');
 
-            // Format formatBytes helpers
-            const input = formatBytes(stage["Input"], 'GB');
-            const output = formatBytes(stage["Output"], 'GB');
-            const sr = formatBytes(stage["Shuffle Read"], 'GB');
-            const sw = formatBytes(stage["Shuffle Write"], 'GB');
-            const sm = formatBytes(stage["Spill Memory"], 'GB');
+                // Format formatBytes helpers
+                const input = formatBytes(stage["Input"], 'GB');
+                const output = formatBytes(stage["Output"], 'GB');
+                const sr = formatBytes(stage["Shuffle Read"], 'GB');
+                const sw = formatBytes(stage["Shuffle Write"], 'GB');
+                const sm = formatBytes(stage["Spill Memory"], 'GB');
 
-            const avgInput = formatBytes(stage["Avg Input"], 'MB') + ' MB';
+                const avgInput = formatBytes(stage["Avg Input"], 'MB') + ' MB';
 
-            // Description (truncate if too long?)
-            let desc = stage["Description"] || stage["Stage Name"] || "";
-            if (desc.length > 50) desc = desc.substring(0, 50) + "...";
+                // Description (truncate if too long?)
+                let desc = stage["Description"] || stage["Stage Name"] || "";
+                if (desc.length > 50) desc = desc.substring(0, 50) + "...";
 
-            tr.innerHTML = `
-                <td>${stage["Stage ID"]}</td>
-                <td style="text-align:left;" title="${stage["Stage Name"]}">${stage["Stage Name"]}</td>
-                <td style="text-align:left;" title="${stage["Description"]}">${desc}</td>
-                <td>${stage["Status"]}</td>
-                <td>${stage["Duration"] ? stage["Duration"].toFixed(1) : '0'}</td>
-                <td>${stage["Tasks"]}</td>
-                <td>${avgInput}</td>
-                <td>${input} GB</td>
-                <td>${output} GB</td>
-                <td>${sr} GB</td>
-                <td>${sw} GB</td>
-                <td>${sm} GB</td>
-            `;
-            tbody.appendChild(tr);
-        });
+                tr.innerHTML = `
+                        <td>${stage["Stage ID"]}</td>
+                        <td style="text-align:left;" title="${stage["Stage Name"]}">${stage["Stage Name"]}</td>
+                        <td style="text-align:left;" title="${stage["Description"]}">${desc}</td>
+                        <td>${stage["Status"]}</td>
+                        <td>${stage["Duration"] ? stage["Duration"].toFixed(1) : '0'}</td>
+                        <td>${stage["Tasks"]}</td>
+                        <td>${avgInput}</td>
+                        <td>${input} GB</td>
+                        <td>${output} GB</td>
+                        <td>${sr} GB</td>
+                        <td>${sw} GB</td>
+                        <td>${sm} GB</td>
+                    `;
+                tbody.appendChild(tr);
+            });
+        }
     }
 
     function showDetail() {
