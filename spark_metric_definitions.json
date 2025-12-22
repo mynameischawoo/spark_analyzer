@@ -29,5 +29,8 @@
     "Total Spill (Memory)": "메모리 부족으로 인해 디스크로 스필(Spill) 되기 전의 데이터 총량 (메모리 기준)",
     "Total Spill (Disk)": "메모리 부족으로 인해 실제로 디스크에 쓰여진 데이터 총량 (압축 후)",
     "Max Spill Memory (Stage)": "가장 많은 스필이 발생한 스테이지의 전체 스필 양 (심각한 병목 지표)",
-    "Max Spill Stage ID": "최대 스필이 발생한 스테이지 ID"
+    "Max Spill Stage ID": "최대 스필이 발생한 스테이지 ID",
+    "Total Tasks": "애플리케이션에서 실행된 전체 태스크 수",
+    "Preempted Tasks": "리소스 선점(Preemption)으로 인해 중단되거나 실패한 태스크 수",
+    "Preempted Executors": "리소스 선점(Preemption)으로 인해 강제 종료된 Executor 수"
 }

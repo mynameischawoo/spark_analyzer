@@ -126,6 +126,14 @@ def analyze_single_application(files: List[str]) -> Dict[str, Any]:
     dyn_alloc_enabled = False
     max_executors_conf = 0
     
+    # Task Counts
+    total_tasks = 0
+    preempted_tasks = 0
+
+    # Executor Counts
+    preempted_executors = 0
+    preempted_executor_ids = set()
+    
     # Runtime Tracking
     active_executors = set()
     max_active_executors = 0
@@ -221,16 +229,64 @@ def analyze_single_application(files: List[str]) -> Dict[str, Any]:
                         if exec_id in active_executors:
                             active_executors.remove(exec_id)
                         executor_end_times[exec_id] = event.get("Timestamp")
+                        
+                        # Check for preemption
+                        # User specified "Removed Reason" key for SparkListenerExecutorRemoved
+                        # e.g. {"Event":"SparkListenerExecutorRemoved", ..., "Removed Reason":"... was preempted."}
+                        # We also keep "Reason" as fallback.
+                        raw_reason = event.get("Removed Reason") or event.get("Reason")
+                        reason_str = str(raw_reason).lower() if raw_reason else ""
+                        
+                        if "was preempted" in reason_str or "preempt" in reason_str:
+                            preempted_executors += 1
+                            preempted_executor_ids.add(exec_id)
 
                     elif event_type == "SparkListenerTaskEnd":
                         task_info = event.get("Task Info", {})
                         task_metrics = event.get("Task Metrics", {})
                         
-                        if not task_metrics: continue
-                        
-                        # Task Duration
+                        # Process Task Count and Duration (Available in Task Info)
+                        total_tasks += 1
                         duration = task_info.get("Finish Time", 0) - task_info.get("Launch Time", 0)
                         total_task_time_ms += duration
+
+                        # Check Task End Reason for Preemption
+                        task_end_reason = event.get("Task End Reason", {})
+                        is_preempted = False
+                        
+                        # 1. Check Task End Reason keys explicitly
+                        if isinstance(task_end_reason, dict):
+                            # ExecutorLostFailure -> Loss Reason
+                            loss_reason = str(task_end_reason.get("Loss Reason", "")).lower()
+                            if "was preempted" in loss_reason or "preempt" in loss_reason:
+                                is_preempted = True
+                            
+                            # TaskKilled -> Kill Reason (fallback)
+                            if not is_preempted:
+                                kill_reason = str(task_end_reason.get("Kill Reason", "")).lower()
+                                if "preempt" in kill_reason:
+                                    is_preempted = True
+                        
+                        # 2. Global String Check (Backup)
+                        if not is_preempted:
+                            full_reason_str = str(task_end_reason).lower()
+                            if "was preempted" in full_reason_str or "preempt" in full_reason_str:
+                                is_preempted = True
+                        
+                        # 3. Correlation with Preempted Executor
+                        if not is_preempted:
+                            task_exec_id = task_info.get("Executor ID")
+                            if task_exec_id in preempted_executor_ids:
+                                # Safe check for "Reason"
+                                reason_val = task_end_reason.get("Reason") if isinstance(task_end_reason, dict) else str(task_end_reason)
+                                if reason_val != "Success":
+                                    is_preempted = True
+                                    
+                        if is_preempted:
+                             preempted_tasks += 1
+                        
+                        if not task_metrics:
+                             continue
                         
                         # Peak Heap from Task End (snapshot)
                         task_exec_metrics = event.get("Task Executor Metrics", {})
@@ -415,7 +471,11 @@ def analyze_single_application(files: List[str]) -> Dict[str, Any]:
         "Total Spill (Memory)": total_spill_mem,
         "Total Spill (Disk)": total_spill_disk,
         "Max Spill Memory (Stage)": max_spill_mem_stage,
-        "Max Spill Stage ID": max_spill_stage_id
+        "Max Spill Memory (Stage)": max_spill_mem_stage,
+        "Max Spill Stage ID": max_spill_stage_id,
+        "Total Tasks": total_tasks,
+        "Preempted Tasks": preempted_tasks,
+        "Preempted Executors": preempted_executors
     }
     return metrics
 
