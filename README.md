@@ -2,31 +2,57 @@
 
 ![Spark Analyzer Logo](docs/images/logo.svg)
 
-# Spark Analyzer
 
-**Apache Spark를 위한 성능 튜닝 및 로그 분석**
+--- 
+**Apache Spark 리소스 튜닝을 위한 Spark 이벤트 로그 분석기**
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-*분석하고, 시각화하고, 최적화하세요.*
-
 </div>
+
+
+`Spark Analyzer`는 Spark History Server에서 다운로드 받은 이벤트 로그 분석 결과를 웹 기반 대시보드를 통해 Spill, Skew, Shuffle Load 등 30개 이상의 성능 지표로 계산하여 병목 지점을 식별하고 이를 데이터 엔지니어가 효율적으로 최적화할 수 있도록 돕습니다.
 
 ---
 
-**Spark Analyzer**는 원본 Apache Spark 이벤트 로그를 실행 가능한 인사이트로 변환해줍니다. 웹 기반 대시보드를 통해 Spill, Skew, Shuffle Load와 같은 성능 병목 현상을 식별하여 데이터 엔지니어가 작업을 효율적으로 최적화할 수 있도록 돕습니다.
+<br>
 
 ## ✨ 주요 기능 (Key Features)
 
-- **📂 로그 관리 (Log Management)**: 드래그 앤 드롭 업로드, 강력한 검색 및 간편한 삭제.
-- **📊 인터랙티브 대시보드**:
-    - **요약 분석**: 30개 이상의 지표(Duration, CPU/Mem, Spill)로 여러 앱을 나란히 비교.
-    - **상세 흐름**: SQL 시각화 및 데이터 흐름 다이어그램으로 특정 Stage 심층 분석.
-- **⚡ 병목 탐지**: **Max Spill** Stage 및 **Data Skew**와 같은 치명적인 문제를 자동으로 강조.
-- **🛠️ 파워 툴**: CSV 내보내기, 단위 변환(B→TB), 동적 정렬 및 메트릭 정의.
+### 📂 이벤트 로그 관리
+- **간편한 업로드**: 드래그 앤 드롭 또는 파일 선택으로 Spark History Server에서 다운로드한 이벤트 로그 업로드
+- **자동 인식**: 압축 파일(`.zstd`) 및 롤링 로그(`events_1_`, `events_2_`) 자동 처리
+- **로그 관리**: 업로드된 로그 목록 조회, 선택 삭제, 애플리케이션 이름 자동 추출
 
+### 📊 이중 분석 모드
+- **요약 분석 (Summary Analysis)**: 
+  - 여러 애플리케이션을 한 번에 선택하여 30개 이상의 성능 메트릭 비교 분석
+  - Duration, CPU/Memory 사용률, Shuffle, Spill, I/O 등 핵심 지표 제공
+  - 시계열 그래프로 메트릭 트렌드 시각화
+  
+- **상세 분석 (Detail View)**:
+  - 단일 애플리케이션의 Stage별 상세 메트릭 분석
+  - Read/Write 데이터 흐름 시각화 (파일 경로, 포맷, 파티션 수 등)
+  - Executor 타임라인 차트로 리소스 활용 패턴 확인
 
+### 🎯 30+ 성능 메트릭
+리소스 최적화를 위한 핵심 지표 제공:
+- **리소스**: Driver/Executor Cores/Memory, Overhead, 최대 활성 Executor 수
+- **효율성**: Avg Idle Cores (%), Peak Memory Usage (%)
+- **I/O**: Total Input/Output, Write Partitions (Files)
+- **Shuffle**: Total/Max Shuffle Read/Write (Stage/Job별)
+- **병목 지표**: Total/Max Spill (Memory/Disk), Spill 발생 Stage ID
+- **안정성**: Preempted Tasks/Executors
+
+### 🛠️ 분석 도구
+- **CSV 내보내기**: 분석 결과를 CSV 파일로 다운로드하여 추가 분석 가능
+- **단위 변환**: B, KB, MB, GB, TB 단위 간 실시간 전환
+- **동적 정렬**: 모든 컬럼 클릭으로 오름차순/내림차순 정렬
+- **컬럼 재배치**: 드래그 앤 드롭으로 테이블 컬럼 순서 변경
+- **메트릭 툴팁**: 각 메트릭에 마우스 오버 시 상세 설명 표시
+- **SHS 연동**: Application ID 클릭 시 Spark History Server 페이지로 바로 이동
+
+<br>
 
 ## 🚀 빠른 시작 (Quick Start)
 
@@ -126,6 +152,16 @@
 > - 환경을 초기화하려면 `make clean`을 사용하세요.
 > - 가상환경을 비활성화하려면 `pyenv deactivate`를 실행하세요.
 
+<br>
+
+## Spark History Server Event Log 다운로드 및 업로드
+
+* Spark History Server에서 분석할 Application의 Event Log를 다운로드 받은 후 아래 `Unpload log files` 처럼 Event Log 파일을 `Spark Analyzer`에 업로드 하세요.
+
+<img src="docs/images/spark_history_server_demo.png" alt="Upload Log Files" width="100%">
+
+<br>
+
 ## 📸 Snapshots
 ### Upload log files
 
@@ -161,6 +197,7 @@ spark_analyzer/
     └── js/app.js               # 앱 로직
 ```
 
+<br>
 
 ## 🎯 리소스 최적화 방법론 요약(Resource Optimization Methodology Summary)
 
