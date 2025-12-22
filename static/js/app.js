@@ -974,6 +974,9 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             resultTableBody.appendChild(tr);
         });
+
+        // Attach tooltip event listeners after rendering
+        attachTooltipListeners();
     }
 
 
@@ -1194,5 +1197,57 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+
+    // ===== Tooltip Helper Functions =====
+    function showTooltip(element, text) {
+        const tooltip = document.getElementById('global-tooltip');
+        if (!tooltip || !text) return;
+
+        tooltip.textContent = text;
+        tooltip.classList.remove('hidden');
+
+        // Get element position
+        const rect = element.getBoundingClientRect();
+
+        // Position tooltip above the element, centered
+        const tooltipRect = tooltip.getBoundingClientRect();
+        let left = rect.left + (rect.width / 2);
+        let top = rect.top;
+
+        // Adjust if tooltip goes off-screen horizontally
+        if (left - tooltipRect.width / 2 < 10) {
+            left = tooltipRect.width / 2 + 10;
+        } else if (left + tooltipRect.width / 2 > window.innerWidth - 10) {
+            left = window.innerWidth - tooltipRect.width / 2 - 10;
+        }
+
+        tooltip.style.left = left + 'px';
+        tooltip.style.top = top + 'px';
+    }
+
+    function hideTooltip() {
+        const tooltip = document.getElementById('global-tooltip');
+        if (tooltip) {
+            tooltip.classList.add('hidden');
+        }
+    }
+
+    function attachTooltipListeners() {
+        // Remove old listeners by cloning (prevents duplicate listeners)
+        const triggers = document.querySelectorAll('.tooltip-trigger');
+
+        triggers.forEach(trigger => {
+            trigger.addEventListener('mouseenter', function (e) {
+                const tooltipText = this.getAttribute('data-tooltip');
+                if (tooltipText) {
+                    showTooltip(this, tooltipText);
+                }
+            });
+
+            trigger.addEventListener('mouseleave', function (e) {
+                hideTooltip();
+            });
+        });
+    }
 
 });

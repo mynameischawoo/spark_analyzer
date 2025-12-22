@@ -62,17 +62,12 @@
 
 > **참고**: 백그라운드 서비스를 중지하려면 `make stop`을 실행하세요. 환경을 초기화하려면 `make clean`을 사용하세요.
 
-## 📸 스크린샷 (Snapshots)
+## 📸 Snapshots
 
-| **메인 대시보드** | **분석 결과** |
-|:---:|:---:|
-| ![Main List](docs/images/1_main_list.png) | ![Results](docs/images/2_results_list.png) |
-| 로그를 쉽게 관리하고 업로드하세요. | 애플리케이션 간 메트릭을 비교하세요. |
+### Analysis Results Page
 
-| **비교 그래프** | **상세 Stage 흐름** |
-|:---:|:---:|
-| ![Graph](docs/images/3_summary_graph.png) | ![Flow](docs/images/4_detail_flow.png) |
-| 트렌드와 리소스 사용량을 시각화하세요. | 데이터 흐름을 추적하고 Skew를 식별하세요. |
+<img src="docs/images/analysis_results_page.gif" alt="Analysis Results" width="100%">
+
 
 ## 📁 프로젝트 구조 (Project Structure)
 
