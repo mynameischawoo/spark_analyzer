@@ -35,38 +35,110 @@
 ### 설치 및 실행 (Installation & Run)
 편리한 `Makefile`을 제공하여 몇 초 만에 시작할 수 있습니다.
 
-1. **의존성 설치**
+#### 1. **Pyenv 설치**
+   
+   macOS에서 Homebrew를 사용하여 pyenv를 설치합니다:
    ```bash
-   make install
+   $ brew install pyenv pyenv-virtualenv
    ```
 
-2. **애플리케이션 실행**
+   설치 후 셸 설정 파일에 pyenv를 추가합니다 (`.zshrc` 또는 `.bash_profile`):
+   ```bash
+   $ echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.zshrc
+   $ echo 'export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/.zshrc
+   $ echo 'eval "$(pyenv init --path)"' >> ~/.zshrc
+   $ echo 'eval "$(pyenv init -)"' >> ~/.zshrc
+   $ echo 'eval "$(pyenv virtualenv-init -)"' >> ~/.zshrc
+   ```
+
+   셸을 재시작하거나 설정을 다시 로드합니다:
+   ```bash
+   $ source ~/.zshrc
+   ```
+
+#### 2. **Python 3.11 설치**
+   
+   pyenv를 사용하여 Python 3.11을 설치합니다:
+   ```bash
+   $ pyenv install 3.11
+   ```
+
+   설치 가능한 Python 버전 확인:
+   ```bash
+   $ pyenv install --list | grep 3.11
+   ```
+
+#### 3. **가상환경 생성 및 활성화**
+   
+   Python 3.11 기반의 `spark_analyzer_env` 가상환경을 생성합니다:
+   ```bash
+   $ pyenv virtualenv 3.11 spark_analyzer_env
+   ```
+
+   프로젝트 디렉토리로 이동하여 가상환경을 활성화합니다:
+   ```bash
+   $ cd /path/to/spark_analyzer
+   $ pyenv activate spark_analyzer_env
+   ```
+
+   또는 프로젝트 디렉토리에서 자동으로 활성화되도록 설정:
+   ```bash
+   $ pyenv local spark_analyzer_env
+   ```
+
+#### 4. **의존성 패키지 설치**
+   
+   가상환경이 활성화된 상태에서 `requirements.txt`의 패키지를 설치합니다:
+   ```bash
+   (spark_analyzer_env) $ pip install -r requirements.txt
+   ```
+
+   설치 확인:
+   ```bash
+   (spark_analyzer_env) $ pip list
+   ```
+
+#### 5. **애플리케이션 실행**
    `SHS_URL` 환경변수를 설정하여 Spark History Server와 연동할 수 있습니다. (기본값: `http://localhost:18080`)
 
    ```bash
    # 포그라운드 (개발용)
-   make run
+   (spark_analyzer_env) $ make run
 
    # 백그라운드 (서비스용)
-   make start
+   (spark_analyzer_env) $ make start
 
    # 사용자 정의 SHS URL 사용 예시
-   export SHS_URL="http://spark-history-server:18080"
-   make run
+   (spark_analyzer_env) $ export SHS_URL="http://spark-history-server:18080"
+   (spark_analyzer_env) $ make run
    ```
 
    > **SHS 연동**: 편의를 위해 환경변수가 설정되면, 분석 결과의 **Application ID**를 클릭했을 때 해당 Spark History Server 페이지로 바로 이동합니다.
 
-3. **대시보드 접속**
+#### 6. **대시보드 접속**
    브라우저에서 [http://localhost:8000](http://localhost:8000)을 엽니다.
 
-> **참고**: 백그라운드 서비스를 중지하려면 `make stop`을 실행하세요. 환경을 초기화하려면 `make clean`을 사용하세요.
+> **참고**: 
+> - 백그라운드 서비스를 중지하려면 `make stop`을 실행하세요.
+> - 환경을 초기화하려면 `make clean`을 사용하세요.
+> - 가상환경을 비활성화하려면 `pyenv deactivate`를 실행하세요.
 
 ## 📸 Snapshots
+### Upload log files
 
-### Analysis Results Page
+<img src="docs/images/spark_analyzer_file_upload.gif" alt="Upload Log Files" width="100%">
 
-<img src="docs/images/analysis_results_page.gif" alt="Analysis Results" width="100%">
+### Analyze Seleted
+
+<img src="docs/images/spark_analyzer_analyze_selected.gif" alt="Analyze Selected" width="100%">
+
+### Create Graph
+
+<img src="docs/images/spark_analyzer_create_graph.gif" alt="Create Graph" width="100%">
+
+### Detail View
+
+<img src="docs/images/spark_analyzer_detail_view.gif" alt="Detail View" width="100%">
 
 
 ## 📁 프로젝트 구조 (Project Structure)
