@@ -599,3 +599,109 @@ td {
     border-style: solid;
     border-color: var(--border-color) transparent transparent transparent;
 }
+
+/* Statistics Cards */
+.stats-cards-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+    padding: 20px;
+    background: var(--panel-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+}
+
+.stats-cards-container h3 {
+    grid-column: 1 / -1;
+    color: #fff;
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.stat-card {
+    background: linear-gradient(135deg, #1a1f2e 0%, #0d1117 100%);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 16px;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    border-color: var(--primary-accent);
+}
+
+.stat-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.stat-card-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+}
+
+.stat-card-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.2;
+}
+
+.stat-card-values {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+}
+
+.stat-value-item {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 6px;
+    padding: 8px 10px;
+    text-align: center;
+}
+
+.stat-value-label {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+}
+
+.stat-value-number {
+    font-size: 1rem;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* Stat card color variations */
+.stat-card.duration .stat-card-icon { background: rgba(88, 166, 255, 0.2); color: #58a6ff; }
+.stat-card.duration .stat-value-number { color: #58a6ff; }
+
+.stat-card.shuffle .stat-card-icon { background: rgba(255, 123, 114, 0.2); color: #ff7b72; }
+.stat-card.shuffle .stat-value-number { color: #ff7b72; }
+
+.stat-card.io .stat-card-icon { background: rgba(46, 160, 67, 0.2); color: #2ea043; }
+.stat-card.io .stat-value-number { color: #2ea043; }
+
+.stat-card.memory .stat-card-icon { background: rgba(210, 168, 255, 0.2); color: #d2a8ff; }
+.stat-card.memory .stat-value-number { color: #d2a8ff; }
+
+.stat-card.efficiency .stat-card-icon { background: rgba(255, 215, 0, 0.2); color: #ffd700; }
+.stat-card.efficiency .stat-value-number { color: #ffd700; }
+
+.stat-card.preempt .stat-card-icon { background: rgba(248, 81, 73, 0.2); color: #f85149; }
+.stat-card.preempt .stat-value-number { color: #f85149; }

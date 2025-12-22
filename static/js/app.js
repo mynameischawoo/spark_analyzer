@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const panelList = document.getElementById('log-selection-view');
     const panelResult = document.getElementById('analysis-result-view');
     const summaryChartContainer = document.getElementById('summary-chart-container');
+    const statsCardsContainer = document.getElementById('stats-cards-container');
     const panelDetail = document.getElementById('detail-result-view');
     const loadingOverlay = document.getElementById('loading-overlay');
 
@@ -1134,7 +1135,124 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
+        // 4. Render Statistics Cards
+        renderStatsCards(selectedData);
+
         summaryChartContainer.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    // Statistics Cards Rendering
+    function renderStatsCards(data) {
+        statsCardsContainer.innerHTML = '';
+        statsCardsContainer.classList.remove('hidden');
+
+        if (!data || data.length === 0) {
+            statsCardsContainer.classList.add('hidden');
+            return;
+        }
+
+        // Metrics to display with their config
+        const metricsConfig = [
+            { key: 'Duration (Sec)', label: 'Duration', unit: 'sec', icon: '⏱️', category: 'duration' },
+            { key: 'Max Shuffle Read (Stage)', label: 'Max Shuffle Read', unit: currentUnit, isByte: true, icon: '📥', category: 'shuffle' },
+            { key: 'Max Shuffle Write (Stage)', label: 'Max Shuffle Write', unit: currentUnit, isByte: true, icon: '📤', category: 'shuffle' },
+            { key: 'Total Input', label: 'Total Input', unit: currentUnit, isByte: true, icon: '📂', category: 'io' },
+            { key: 'Total Output', label: 'Total Output', unit: currentUnit, isByte: true, icon: '💾', category: 'io' },
+            { key: 'Total Memory Capacity', label: 'Total Memory', unit: currentUnit, isByte: true, icon: '🧠', category: 'memory' },
+            { key: 'Avg Idle Cores (%)', label: 'Avg Idle Cores', unit: '%', icon: '💤', category: 'efficiency' },
+            { key: 'Peak Memory Usage (%)', label: 'Peak Memory Usage', unit: '%', icon: '📈', category: 'memory' },
+            { key: 'Preempted Executors', label: 'Preempted Executors', unit: '', icon: '⚠️', category: 'preempt' }
+        ];
+
+        // Helper functions
+        function getValues(key, isByte) {
+            return data.map(d => {
+                let val = d[key];
+                if (val === null || val === undefined || isNaN(val)) return null;
+                if (isByte) {
+                    return formatBytes(val, currentUnit);
+                }
+                return Number(val);
+            }).filter(v => v !== null && !isNaN(v));
+        }
+
+        function calcMin(arr) {
+            return arr.length > 0 ? Math.min(...arr) : 0;
+        }
+
+        function calcMax(arr) {
+            return arr.length > 0 ? Math.max(...arr) : 0;
+        }
+
+        function calcAvg(arr) {
+            return arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+        }
+
+        function calcMedian(arr) {
+            if (arr.length === 0) return 0;
+            const sorted = [...arr].sort((a, b) => a - b);
+            const mid = Math.floor(sorted.length / 2);
+            return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+        }
+
+        function formatValue(val, unit) {
+            const intVal = Math.round(val);
+            if (unit === '%') {
+                return intVal.toLocaleString() + '%';
+            } else if (unit === 'sec') {
+                return intVal.toLocaleString() + 's';
+            } else if (unit && unit !== '') {
+                return intVal.toLocaleString() + ' ' + unit;
+            }
+            return intVal.toLocaleString();
+        }
+
+        // Create header
+        const header = document.createElement('h3');
+        header.textContent = `📊 Statistics Summary (${data.length} Applications)`;
+        statsCardsContainer.appendChild(header);
+
+        // Create cards
+        metricsConfig.forEach(metric => {
+            const values = getValues(metric.key, metric.isByte);
+
+            if (values.length === 0) return; // Skip if no data
+
+            const min = calcMin(values);
+            const max = calcMax(values);
+            const avg = calcAvg(values);
+            const median = calcMedian(values);
+
+            const card = document.createElement('div');
+            card.className = `stat-card ${metric.category}`;
+
+            card.innerHTML = `
+                <div class="stat-card-header">
+                    <div class="stat-card-icon">${metric.icon}</div>
+                    <div class="stat-card-title">${metric.label}</div>
+                </div>
+                <div class="stat-card-values">
+                    <div class="stat-value-item">
+                        <div class="stat-value-label">MIN</div>
+                        <div class="stat-value-number">${formatValue(min, metric.unit)}</div>
+                    </div>
+                    <div class="stat-value-item">
+                        <div class="stat-value-label">MAX</div>
+                        <div class="stat-value-number">${formatValue(max, metric.unit)}</div>
+                    </div>
+                    <div class="stat-value-item">
+                        <div class="stat-value-label">MEDIAN</div>
+                        <div class="stat-value-number">${formatValue(median, metric.unit)}</div>
+                    </div>
+                    <div class="stat-value-item">
+                        <div class="stat-value-label">AVG</div>
+                        <div class="stat-value-number">${formatValue(avg, metric.unit)}</div>
+                    </div>
+                </div>
+            `;
+
+            statsCardsContainer.appendChild(card);
+        });
     }
 
     // Drag and Drop Handlers
