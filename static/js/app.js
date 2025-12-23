@@ -837,15 +837,60 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     let columnOrder = [];
 
+    // Preferred column order (from user specification)
+    const PREFERRED_COLUMN_ORDER = [
+        "Start Date",
+        "Application ID",
+        "Application Name",
+        "Duration (Sec)",
+        "Driver Cores",
+        "Driver Memory",
+        "Executor Cores",
+        "Executor Memory",
+        "Executor Overhead Memory",
+        "Requested Executors",
+        "Max Active Executors",
+        "Preempted Executors",
+        "Total Cores Capacity",
+        "Total Memory Capacity",
+        "Avg Idle Cores (%)",
+        "Peak Memory Usage (%)",
+        "Peak Heap Usage",
+        "Total Input",
+        "Total Output",
+        "Write Partitions (Files)",
+        "Total Spill (Memory)",
+        "Total Spill (Disk)",
+        "Total Shuffle Read",
+        "Total Shuffle Write",
+        "Max Shuffle Read (Stage)",
+        "Max Shuffle Read Stage ID",
+        "Max Shuffle Write (Stage)",
+        "Max Shuffle Write Stage ID",
+        "Max Spill Memory (Stage)",
+        "Max Spill Stage ID",
+        "Max Shuffle Read (Job)",
+        "Max Shuffle Read Job ID",
+        "Max Shuffle Write (Job)",
+        "Max Shuffle Write Job ID",
+        "Total Tasks",
+        "Preempted Tasks"
+    ];
+
     function renderResults(data) {
         resultTableHead.innerHTML = '';
         resultTableBody.innerHTML = '';
 
         if (!data || data.length === 0) return;
 
-        // Initialize column order if needed
+        // Initialize column order with preferred order first, then remaining columns
         if (columnOrder.length === 0) {
-            columnOrder = Object.keys(data[0]);
+            const dataKeys = Object.keys(data[0]);
+            // Start with preferred columns that exist in data
+            const orderedCols = PREFERRED_COLUMN_ORDER.filter(col => dataKeys.includes(col));
+            // Add remaining columns not in preferred order
+            const remainingCols = dataKeys.filter(col => !PREFERRED_COLUMN_ORDER.includes(col));
+            columnOrder = [...orderedCols, ...remainingCols];
         }
 
         // Apply Sort if active (on the data itself)
