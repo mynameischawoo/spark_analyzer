@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnBackFromDetail = document.getElementById('btn-back-from-detail');
     const btnDownloadCsv = document.getElementById('btn-download-csv');
     const btnCreateGraph = document.getElementById('btn-create-graph');
+    const btnWideView = document.getElementById('btn-wide-view');
 
     // ...
 
@@ -27,6 +28,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const emptyStateContainer = document.getElementById('empty-state-container');
     const logListPanel = document.getElementById('log-list-panel');
 
+    // Table Container for Wide View
+    const resultTableContainer = document.getElementById('result-table-container');
+
     // ...
 
     // Event Listeners
@@ -37,6 +41,12 @@ document.addEventListener('DOMContentLoaded', () => {
     btnBack.addEventListener('click', showList);
     btnBackFromDetail.addEventListener('click', showList);
     btnCreateGraph.addEventListener('click', handleCreateGraph);
+
+    // Wide View Toggle
+    btnWideView.addEventListener('click', () => {
+        resultTableContainer.classList.toggle('wide-view');
+        btnWideView.classList.toggle('active');
+    });
     // ...
 
     async function startDetailAnalysis() {
@@ -1268,6 +1278,20 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault(); // Necessary to allow dropping
         const th = e.target.closest('th');
         if (th && th.dataset.column !== draggedColumn) {
+            // Determine if cursor is on left or right half of the column
+            const rect = th.getBoundingClientRect();
+            const midpoint = rect.left + rect.width / 2;
+
+            // Remove previous indicators
+            document.querySelectorAll('.drag-over-left, .drag-over-right').forEach(el => {
+                el.classList.remove('drag-over-left', 'drag-over-right');
+            });
+
+            if (e.clientX < midpoint) {
+                th.classList.add('drag-over-left');
+            } else {
+                th.classList.add('drag-over-right');
+            }
             th.classList.add('drag-over');
         }
         e.dataTransfer.dropEffect = 'move';
@@ -1276,7 +1300,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function handleDragLeave(e) {
         const th = e.target.closest('th');
-        if (th) th.classList.remove('drag-over');
+        if (th) {
+            th.classList.remove('drag-over', 'drag-over-left', 'drag-over-right');
+        }
     }
 
     function handleDrop(e, targetColumn, data) {
@@ -1284,10 +1310,10 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
 
         const th = e.target.closest('th');
-        if (th) th.classList.remove('drag-over', 'dragging');
+        if (th) th.classList.remove('drag-over', 'dragging', 'drag-over-left', 'drag-over-right');
 
         // Remove dragging class from all (cleanup)
-        document.querySelectorAll('.sortable').forEach(el => el.classList.remove('dragging', 'drag-over'));
+        document.querySelectorAll('.sortable').forEach(el => el.classList.remove('dragging', 'drag-over', 'drag-over-left', 'drag-over-right'));
 
         if (draggedColumn !== targetColumn) {
             const fromIndex = columnOrder.indexOf(draggedColumn);

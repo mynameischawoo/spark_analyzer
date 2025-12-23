@@ -434,6 +434,51 @@ td {
     border-bottom: 1px solid #21262d;
 }
 
+/* Wide View Mode */
+.table-container.wide-view table {
+    width: auto;
+    min-width: 100%;
+}
+
+.table-container.wide-view th,
+.table-container.wide-view td {
+    white-space: nowrap;
+}
+
+#btn-wide-view.active {
+    background-color: var(--primary-accent);
+    border-color: var(--primary-accent);
+    color: #fff;
+}
+
+/* Column Drag Indicators */
+th.dragging {
+    opacity: 0.5;
+    background: rgba(88, 166, 255, 0.2) !important;
+}
+
+th.drag-over {
+    background: rgba(88, 166, 255, 0.1);
+}
+
+th.drag-over-left {
+    border-left: 3px solid var(--primary-accent) !important;
+}
+
+th.drag-over-right {
+    border-right: 3px solid var(--primary-accent) !important;
+}
+
+th.sortable {
+    position: relative;
+    cursor: grab;
+    user-select: none;
+}
+
+th.sortable:active {
+    cursor: grabbing;
+}
+
 /* Charts */
 .chart-container {
     background: var(--panel-bg);
@@ -688,20 +733,56 @@ td {
 }
 
 /* Stat card color variations */
-.stat-card.duration .stat-card-icon { background: rgba(88, 166, 255, 0.2); color: #58a6ff; }
-.stat-card.duration .stat-value-number { color: #58a6ff; }
+.stat-card.duration .stat-card-icon {
+    background: rgba(88, 166, 255, 0.2);
+    color: #58a6ff;
+}
 
-.stat-card.shuffle .stat-card-icon { background: rgba(255, 123, 114, 0.2); color: #ff7b72; }
-.stat-card.shuffle .stat-value-number { color: #ff7b72; }
+.stat-card.duration .stat-value-number {
+    color: #58a6ff;
+}
 
-.stat-card.io .stat-card-icon { background: rgba(46, 160, 67, 0.2); color: #2ea043; }
-.stat-card.io .stat-value-number { color: #2ea043; }
+.stat-card.shuffle .stat-card-icon {
+    background: rgba(255, 123, 114, 0.2);
+    color: #ff7b72;
+}
 
-.stat-card.memory .stat-card-icon { background: rgba(210, 168, 255, 0.2); color: #d2a8ff; }
-.stat-card.memory .stat-value-number { color: #d2a8ff; }
+.stat-card.shuffle .stat-value-number {
+    color: #ff7b72;
+}
 
-.stat-card.efficiency .stat-card-icon { background: rgba(255, 215, 0, 0.2); color: #ffd700; }
-.stat-card.efficiency .stat-value-number { color: #ffd700; }
+.stat-card.io .stat-card-icon {
+    background: rgba(46, 160, 67, 0.2);
+    color: #2ea043;
+}
 
-.stat-card.preempt .stat-card-icon { background: rgba(248, 81, 73, 0.2); color: #f85149; }
-.stat-card.preempt .stat-value-number { color: #f85149; }
+.stat-card.io .stat-value-number {
+    color: #2ea043;
+}
+
+.stat-card.memory .stat-card-icon {
+    background: rgba(210, 168, 255, 0.2);
+    color: #d2a8ff;
+}
+
+.stat-card.memory .stat-value-number {
+    color: #d2a8ff;
+}
+
+.stat-card.efficiency .stat-card-icon {
+    background: rgba(255, 215, 0, 0.2);
+    color: #ffd700;
+}
+
+.stat-card.efficiency .stat-value-number {
+    color: #ffd700;
+}
+
+.stat-card.preempt .stat-card-icon {
+    background: rgba(248, 81, 73, 0.2);
+    color: #f85149;
+}
+
+.stat-card.preempt .stat-value-number {
+    color: #f85149;
+}
