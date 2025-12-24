@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css?v=50">
+    <link rel="stylesheet" href="/static/css/style.css?v=51">
 </head>
 
 <body>
@@ -53,12 +53,18 @@
 
                 <!-- Replaced Table with Grid -->
                 <!-- We need to keep a hidden input for select-all functionality or implement it differently -->
+                <!-- Search Bar -->
+                <div class="search-container mb-4">
+                    <input type="text" id="log-search-input" class="search-input"
+                        placeholder="Search by Application Name or Application ID...">
+                    <button id="log-search-clear" class="search-clear-btn hidden" title="Clear search">&times;</button>
+                </div>
+
                 <div class="flex items-center gap-4 mb-4" style="color:var(--text-secondary); font-size:0.9rem;">
                     <label class="flex items-center gap-2 cursor-pointer">
                         <input type="checkbox" id="select-all"> Select All
                     </label>
-                    <!-- Sort controls could go here if needed, but for cards typically strict sorting isn't as primary as tables. 
-                          We will keep them minimal or rely on default date sort. -->
+                    <span id="log-count-display" style="margin-left: auto;"></span>
                 </div>
 
                 <div id="log-list-grid" class="section-grid">
@@ -177,7 +183,7 @@
     <div id="global-tooltip" class="hidden"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="/static/js/app.js?v=200"></script>
+    <script src="/static/js/app.js?v=201"></script>
 </body>
 
 </html>

@@ -356,12 +356,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnDelete = document.getElementById('btn-delete-log');
     const uploadInput = document.getElementById('log-upload-input');
 
+    // Search Elements
+    const logSearchInput = document.getElementById('log-search-input');
+    const logSearchClear = document.getElementById('log-search-clear');
+    const logCountDisplay = document.getElementById('log-count-display');
+
     // State
     let logFiles = [];
     let currentResults = []; // Store raw data
     let currentUnit = 'GB';   // Default to GB
     let metricDefinitions = {}; // Store tooltips
     let shsUrl = "";
+    let currentSearchTerm = ""; // Search filter state
 
     // Sort State
     let sortState = {
@@ -519,6 +525,38 @@ document.addEventListener('DOMContentLoaded', () => {
     uploadInput.addEventListener('change', handleUpload);
     btnDelete.addEventListener('click', handleDelete);
 
+    // Search Event Listeners
+    logSearchInput.addEventListener('input', debounce(function () {
+        currentSearchTerm = logSearchInput.value.trim().toLowerCase();
+        // Show/hide clear button
+        if (currentSearchTerm) {
+            logSearchClear.classList.remove('hidden');
+        } else {
+            logSearchClear.classList.add('hidden');
+        }
+        renderLogList(logFiles);
+    }, 200));
+
+    logSearchClear.addEventListener('click', function () {
+        logSearchInput.value = '';
+        currentSearchTerm = '';
+        logSearchClear.classList.add('hidden');
+        renderLogList(logFiles);
+    });
+
+    // Debounce helper function
+    function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
+
     selectAllCb.addEventListener('change', (e) => {
         const checked = e.target.checked;
         document.querySelectorAll('.file-checkbox').forEach(cb => cb.checked = checked);
@@ -619,9 +657,30 @@ document.addEventListener('DOMContentLoaded', () => {
         const grid = document.getElementById('log-list-grid');
         grid.innerHTML = '';
 
+        // Apply search filter
+        let filteredFiles = files;
+        if (currentSearchTerm && files) {
+            filteredFiles = files.filter(file => {
+                const appName = (file.appName || '').toLowerCase();
+                const filename = (file.filename || '').toLowerCase();
+                return appName.includes(currentSearchTerm) || filename.includes(currentSearchTerm);
+            });
+        }
+
+        // Update log count display
+        if (logCountDisplay) {
+            if (currentSearchTerm && files) {
+                logCountDisplay.textContent = `Showing ${filteredFiles.length} of ${files.length} logs`;
+            } else if (files) {
+                logCountDisplay.textContent = `${files.length} logs`;
+            } else {
+                logCountDisplay.textContent = '';
+            }
+        }
+
         // Sorting Logic
-        if (files) {
-            files.sort((a, b) => {
+        if (filteredFiles) {
+            filteredFiles.sort((a, b) => {
                 let valA = a[sortState.column] || '';
                 let valB = b[sortState.column] || '';
 
@@ -637,16 +696,24 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Empty State Logic
-        if (!files || files.length === 0) {
-            emptyStateContainer.classList.remove('hidden');
-            logListPanel.classList.add('hidden');
+        if (!filteredFiles || filteredFiles.length === 0) {
+            if (!files || files.length === 0) {
+                // No logs at all
+                emptyStateContainer.classList.remove('hidden');
+                logListPanel.classList.add('hidden');
+            } else {
+                // Just no search results - show empty grid but keep panel visible
+                emptyStateContainer.classList.add('hidden');
+                logListPanel.classList.remove('hidden');
+                grid.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-secondary);">No matching logs found.</div>';
+            }
             return;
         } else {
             emptyStateContainer.classList.add('hidden');
             logListPanel.classList.remove('hidden');
         }
 
-        files.forEach(file => {
+        filteredFiles.forEach(file => {
             const card = document.createElement('div');
             card.className = 'card log-item-card';
 
