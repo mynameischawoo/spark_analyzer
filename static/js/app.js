@@ -375,9 +375,8 @@ document.addEventListener('DOMContentLoaded', () => {
         direction: 'desc'
     };
 
-    // Columns identified as Bytes to be converted
     const BYTE_COLUMNS = [
-        "Total Input", "Total Output",
+        "Total Input", "Total Output", "Write File Avg Size",
         "Driver Memory", "Executor Memory", "Executor Overhead Memory", "Total Memory Capacity",
         "Peak Heap Usage", "Total Shuffle Read", "Total Shuffle Write",
         "Max Shuffle Read (Stage)", "Max Shuffle Write (Stage)",
@@ -925,6 +924,8 @@ document.addEventListener('DOMContentLoaded', () => {
         "Peak Heap Usage",
         "Total Input",
         "Total Output",
+        "Total Output Rows",
+        "Write File Avg Size",
         "Write Partitions (Files)",
         "Total Spill (Memory)",
         "Total Spill (Disk)",

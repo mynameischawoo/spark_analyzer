@@ -33,6 +33,8 @@ start:
 		nohup env SHS_URL="$(SHS_URL)" $(PYTHON) $(APP_FILE) > $(LOG_FILE) 2>&1 & echo $$! > $(PID_FILE); \
 		echo "Server started with PID $$(cat $(PID_FILE))"; \
 		echo "Logs: $(LOG_FILE)"; \
+		sleep 1; \
+		open http://127.0.0.1:$(PORT); \
 	fi
 
 stop:

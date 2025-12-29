@@ -435,6 +435,9 @@ def analyze_single_application(files: List[str]) -> Dict[str, Any]:
     from write_analyzer import analyze_write_metrics
     write_metrics = analyze_write_metrics(files)
     total_write_files = sum(w.get("Files Written", 0) for w in write_metrics)
+    total_output_rows = sum(w.get("Rows", 0) for w in write_metrics)
+    total_write_bytes = sum(w.get("Bytes Written", 0) for w in write_metrics)
+    avg_write_file_size = int(total_write_bytes / total_write_files) if total_write_files > 0 else 0
         
     total_cores_capacity = max_active_executors * executor_cores
     total_mem_capacity = max_active_executors * (executor_memory + executor_overhead)
@@ -451,6 +454,8 @@ def analyze_single_application(files: List[str]) -> Dict[str, Any]:
         "Duration (Sec)": round(duration_sec, 2),
         "Total Input": total_input_bytes,
         "Total Output": total_output_bytes,
+        "Total Output Rows": total_output_rows,
+        "Write File Avg Size": avg_write_file_size,
         "Driver Cores": driver_cores,
         "Driver Memory": driver_memory,
         "Executor Cores": executor_cores,
