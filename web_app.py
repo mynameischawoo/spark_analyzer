@@ -8,6 +8,9 @@ import json
 import subprocess
 import datetime
 import pandas as pd
+import zipfile
+import tempfile
+import shutil
 from typing import List
 
 app = FastAPI()
@@ -135,21 +138,79 @@ async def delete_logs(request: AnalyzeRequest):
 
 @app.post("/api/upload")
 async def upload_logs(files: List[UploadFile] = File(...)):
-    """Uploads new log files."""
+    """Uploads new log files. Supports ZIP files which are automatically extracted."""
     saved_count = 0
+    
+    def is_spark_log_file(filename):
+        """Check if a filename matches Spark log patterns."""
+        basename = os.path.basename(filename)
+        return (
+            basename.startswith("application_") or
+            basename.startswith("appstatus_application_") or
+            basename.startswith("events_") or
+            basename.startswith("eventlog_v2_")
+        )
+    
+    def extract_zip_file(zip_content, original_filename):
+        """Extract ZIP file and move Spark log files to LOGS_DIR."""
+        extracted_count = 0
+        with tempfile.TemporaryDirectory() as temp_dir:
+            zip_path = os.path.join(temp_dir, original_filename)
+            
+            # Write ZIP to temp
+            with open(zip_path, "wb") as f:
+                f.write(zip_content)
+            
+            # Extract
+            extract_dir = os.path.join(temp_dir, "extracted")
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(extract_dir)
+            
+            # Walk extracted files and move matching ones
+            for root, dirs, extracted_files in os.walk(extract_dir):
+                for ef in extracted_files:
+                    # Skip hidden files
+                    if ef.startswith('.'):
+                        continue
+                    
+                    src_path = os.path.join(root, ef)
+                    
+                    # Check if it's a Spark log file pattern
+                    if is_spark_log_file(ef):
+                        dest_path = os.path.join(LOGS_DIR, ef)
+                        shutil.copy2(src_path, dest_path)
+                        extracted_count += 1
+                        print(f"Extracted: {ef}")
+        
+        return extracted_count
+    
     for file in files:
         try:
             # Basic validation
-            if ".." in file.filename or "/" in file.filename:
+            filename = file.filename
+            if ".." in filename:
                 continue
+            
+            # Handle path separators for files from different OS
+            basename = os.path.basename(filename)
+            
+            content = await file.read()
+            
+            # Check if it's a ZIP file
+            if basename.lower().endswith('.zip'):
+                count = extract_zip_file(content, basename)
+                saved_count += count
+            else:
+                # Regular file upload
+                path = os.path.join(LOGS_DIR, basename)
+                with open(path, "wb") as buffer:
+                    buffer.write(content)
+                saved_count += 1
                 
-            path = os.path.join(LOGS_DIR, file.filename)
-            with open(path, "wb") as buffer:
-                content = await file.read()
-                buffer.write(content)
-            saved_count += 1
         except Exception as e:
             print(f"Failed to upload {file.filename}: {e}")
+            import traceback
+            traceback.print_exc()
             
     return {"status": "success", "saved": saved_count}
 

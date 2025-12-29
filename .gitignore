@@ -213,3 +213,6 @@ event_logs/
 
 # macOS
 .DS_Store
+
+# Server
+server.pid
