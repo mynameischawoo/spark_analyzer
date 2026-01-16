@@ -13,7 +13,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnBackFromDetail = document.getElementById('btn-back-from-detail');
     const btnDownloadCsv = document.getElementById('btn-download-csv');
     const btnCreateGraph = document.getElementById('btn-create-graph');
+
     const btnWideView = document.getElementById('btn-wide-view');
+    const btnDeleteResult = document.getElementById('btn-delete-result');
 
     // ...
 
@@ -41,6 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btnBack.addEventListener('click', showList);
     btnBackFromDetail.addEventListener('click', showList);
     btnCreateGraph.addEventListener('click', handleCreateGraph);
+    btnDeleteResult.addEventListener('click', handleDeleteResult);
 
     // Wide View Toggle
     btnWideView.addEventListener('click', () => {
@@ -857,6 +860,81 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    async function handleDeleteResult() {
+        // Get selected checkboxes
+        const checks = Array.from(resultTableBody.querySelectorAll('.row-checkbox:checked'));
+        if (checks.length === 0) {
+            alert('삭제할 결과를 선택해주세요.');
+            return;
+        }
+
+        if (!confirm(`선택한 ${checks.length}개의 결과를 삭제하시겠습니까?`)) return;
+
+        // Get Application IDs from selected rows
+        const selectedIndices = checks.map(c => parseInt(c.value));
+
+        let displayData = [...currentResults];
+        // Apply current sort state to match table order/indices
+        if (resultSortState.column) {
+            displayData.sort((a, b) => {
+                let valA = a[resultSortState.column];
+                let valB = b[resultSortState.column];
+                if (valA === undefined || valA === null) valA = -Infinity;
+                if (valB === undefined || valB === null) valB = -Infinity;
+                if (typeof valA === 'number' && typeof valB === 'number') {
+                    return resultSortState.direction === 'asc' ? valA - valB : valB - valA;
+                }
+                valA = String(valA).toLowerCase();
+                valB = String(valB).toLowerCase();
+                if (valA < valB) return resultSortState.direction === 'asc' ? -1 : 1;
+                if (valA > valB) return resultSortState.direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+        }
+
+        const appIdsToDelete = selectedIndices.map(i => displayData[i]["Application ID"]).filter(id => id);
+
+        if (appIdsToDelete.length === 0) {
+            alert('삭제할 수 있는 Application ID를 찾지 못했습니다.');
+            return;
+        }
+
+        showLoading(true, "Deleting Results...");
+        try {
+            const res = await fetch('/api/results', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ app_ids: appIdsToDelete })
+            });
+
+            if (res.ok) {
+                const result = await res.json();
+
+                // Update local state: currentResults
+                // Filter out deleted items from currentResults
+                currentResults = currentResults.filter(row => !appIdsToDelete.includes(row["Application ID"]));
+
+                // Re-render
+                renderResults(currentResults);
+
+                // Hide chart if visible because selection is invalid now
+                if (summaryChart && !summaryChartContainer.classList.contains('hidden')) {
+                    summaryChartContainer.classList.add('hidden');
+                    statsCardsContainer.classList.add('hidden');
+                }
+
+                alert(`${result.deleted_count}개의 결과가 삭제되었습니다.`);
+            } else {
+                const err = await res.json();
+                throw new Error(err.detail || 'Delete failed');
+            }
+        } catch (err) {
+            alert('삭제 중 오류 발생: ' + err.message);
+        } finally {
+            showLoading(false);
+        }
+    }
+
     async function fetchRecentResults() {
         showLoading(true, "Fetching Results...");
         try {
@@ -1068,6 +1146,15 @@ document.addEventListener('DOMContentLoaded', () => {
             checkbox.value = index; // Store index to retrieve data
             tdCheck.appendChild(checkbox);
             tr.appendChild(tdCheck);
+
+            // Make row clickable
+            tr.style.cursor = 'pointer';
+            tr.addEventListener('click', (e) => {
+                // Prevent toggle if clicking on checkbox (default behavior) or a link
+                if (e.target.type !== 'checkbox' && e.target.tagName !== 'A') {
+                    checkbox.checked = !checkbox.checked;
+                }
+            });
 
             columnOrder.forEach(key => {
                 const td = document.createElement('td');

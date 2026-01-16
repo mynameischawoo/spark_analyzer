@@ -376,6 +376,90 @@ async def get_results():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading CSV: {str(e)}")
 
+class DeleteResultsRequest(BaseModel):
+    app_ids: List[str]
+
+@app.delete("/api/results")
+async def delete_results(request: DeleteResultsRequest):
+    """Deletes rows from the analysis results CSV and removes corresponding log files."""
+    if not os.path.exists(OUTPUT_CSV):
+        raise HTTPException(status_code=404, detail="No analysis results found")
+    
+    try:
+        df = pd.read_csv(OUTPUT_CSV)
+        
+        # Check if Application ID column exists
+        if "Application ID" not in df.columns:
+             raise HTTPException(status_code=400, detail="CSV does not contain 'Application ID' column")
+
+        original_count = len(df)
+        
+        # Filter out rows to be deleted
+        # Keep rows where Application ID is NOT in the request list
+        df = df[~df["Application ID"].isin(request.app_ids)]
+        
+        deleted_count = original_count - len(df)
+        
+        # Save back to CSV
+        df.to_csv(OUTPUT_CSV, index=False)
+        
+        # --- Delete Actual Log Files ---
+        deleted_files_count = 0
+        file_errors = []
+        
+        for app_id in request.app_ids:
+            # Handle potential "application_" prefix if it's missing or present variously, 
+            # but usually App ID in CSV is "application_123..."
+            # Clean ID just in case
+            clean_id = app_id.strip()
+            
+            # 1. Patterns to match
+            # Note: app_id normally includes 'application_' prefix. e.g. 'application_170...'
+            # Pattern A: Exact match or simple extensions
+            # Pattern B: appstatus_ prefix
+            # Pattern C: events_* rolling logs
+            
+            # If app_id starts with 'application_', we can use it directly.
+            # If it's just numbers, we might need to be careful? Assuming standard Spark App IDs.
+            
+            # We will try to be safe and specific.
+            # 1. Standard log: {clean_id} (plus extensions like .zstd, .lz4 is handled by glob if not exact)
+            # Actually, standard logs are usually just the AppID filename, sometimes with compression ext.
+            
+            patterns = [
+                os.path.join(LOGS_DIR, f"{clean_id}*"),              # Standard: application_123...
+                os.path.join(LOGS_DIR, f"appstatus_{clean_id}*"),    # Rolling Anchor: appstatus_application_123...
+            ]
+            
+            # For rolling parts (events_X_...), the format is events_X_application_123...
+            # Note: clean_id usually is "application_123..."
+            # So pattern is events_*_{clean_id}*
+            patterns.append(os.path.join(LOGS_DIR, f"events_*_{clean_id}*"))
+
+            for pattern in patterns:
+                for fpath in glob.glob(pattern):
+                    try:
+                         if os.path.exists(fpath):
+                             os.remove(fpath)
+                             deleted_files_count += 1
+                             print(f"Deleted log file: {fpath}")
+                    except Exception as e:
+                        print(f"Error deleting file {fpath}: {e}")
+                        file_errors.append(str(e))
+
+        return {
+            "status": "success", 
+            "deleted_rows": deleted_count,
+            "deleted_files": deleted_files_count,
+            "remaining_count": len(df),
+            "file_errors": file_errors
+        }
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error deleting results: {str(e)}")
+
 @app.get("/api/results/download")
 async def download_results():
     """Downloads the latest analysis result CSV."""
