@@ -1073,6 +1073,7 @@ document.addEventListener('DOMContentLoaded', () => {
         checkAll.addEventListener('change', (e) => {
             const checks = resultTableBody.querySelectorAll('.row-checkbox');
             checks.forEach(c => c.checked = e.target.checked);
+            updateRowCountIndicator();
         });
         thCheck.appendChild(checkAll);
         trHead.appendChild(thCheck);
