@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const btnWideView = document.getElementById('btn-wide-view');
     const btnDeleteResult = document.getElementById('btn-delete-result');
+    const rowCountIndicator = document.getElementById('row-count-indicator');
 
     // ...
 
@@ -1188,6 +1189,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Attach tooltip event listeners after rendering
         attachTooltipListeners();
+
+        // Update row count indicator
+        updateRowCountIndicator();
+
+        // Add event listener to checkboxes for live update
+        resultTableBody.querySelectorAll('.row-checkbox').forEach(cb => {
+            cb.addEventListener('change', updateRowCountIndicator);
+        });
+    }
+
+    function updateRowCountIndicator() {
+        const totalRows = resultTableBody.querySelectorAll('.row-checkbox').length;
+        const selectedRows = resultTableBody.querySelectorAll('.row-checkbox:checked').length;
+        if (rowCountIndicator) {
+            rowCountIndicator.textContent = `(Total: ${totalRows}, Selected: ${selectedRows})`;
+        }
     }
 
 
